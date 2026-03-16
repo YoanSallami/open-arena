@@ -1,8 +1,7 @@
-
 [project]
-name = "multi-language-model-evaluation-framework"
+name = "open-arena"
 version = "0.1.0"
-description = "Evaluation framework for general dataset using Langfuse, LiteLLM and multi-metric analysis."
+description = "Open Arena evaluation framework for general datasets using Langfuse, LiteLLM, and multi-metric analysis."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE.md" }
@@ -18,20 +17,35 @@ classifiers = [
     "Environment :: Console",
 ]
 dependencies = [
+    "fastapi",
+    "fastapi-mcp",
+    "fastmcp",
     "langchain",
-    "langchain-mcp-adapters",
+    "langchain-core",
     "langchain-litellm",
+    "langchain-mcp-adapters",
     "langfuse>=3.10.1",
     "langgraph>=0.6.6",
     "litellm>=1.80.15",
+    "matplotlib",
+    "networkx",
+    "openai",
     "openpyxl",
-    "pandas",
+    "opentelemetry-api",
+    "opentelemetry-exporter-otlp",
+    "opentelemetry-sdk",
+    "pandas>=2.3.3",
+    "playwright",
     "pydantic>=2",
     "python-dotenv",
+    "pyyaml",
+    "streamlit",
+    "uvicorn",
+    "xlsxwriter>=3.2.9",
 ]
 
 [project.scripts]
-mlmef = "src.main_cli:main"
+arena = "src.main_cli:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

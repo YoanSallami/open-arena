@@ -25,14 +25,13 @@ class ToolScaleItem(DatasetItem):
 
     def input(self) -> str:
         return self.user_scenario
-    
+
     def expected_output(self) -> str:
         return self.evaluation_criteria
-    
+
     def meta(self) -> dict[str, Any]:
         return {
             **self.metadata,
             "description": self.description,
             "initial_state": self.initial_state
         }
-

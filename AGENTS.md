@@ -1,4 +1,3 @@
-
 # AGENTS.md
 
 ## Dev environment tips
@@ -19,13 +18,17 @@
 
 ## Running instructions
 
-- Preferred way (validates packaging + entry point):
+- Preferred way for this branch:
   ```sh
-  mlmef --config <config.yaml>
+  python -m src.main
+  ```
+- Packaged Open Arena CLI entry point:
+  ```sh
+  arena --config <config.yaml>
   ```
 - Example:
   ```sh
-  mlmef --config config.example.yaml
+  arena --config config.example.yaml
   ```
 - Alternative (module execution, useful for debugging):
   ```sh

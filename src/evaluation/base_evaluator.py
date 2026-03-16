@@ -14,7 +14,7 @@ class Evaluator(ABC, Generic[T]):
     Abstract base class for all evaluators.
     Defines the common interface that all evaluator implementations must follow.
     """
-    
+
     def __init__(
         self,
         results: list[ExecutionResult[T]],
@@ -26,12 +26,12 @@ class Evaluator(ABC, Generic[T]):
         """
         self.results = results
         self.method = method
-    
+
     @abstractmethod
     async def evaluate(self) -> list[EvaluationResult[T]]:
         """
         Evaluate the execution results.
-        
+
         :return: List of evaluation results with scores
         """
         pass

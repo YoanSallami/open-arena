@@ -33,7 +33,7 @@ class Executor(ABC, Generic[T]):
     async def _execute_item(self, item: T) -> ExecutionResult[T]:
         """
         Execute a single dataset item.
-        
+
         :param item: Dataset item to execute
         :return: ExecutionResult containing item, output, and model name
         """
@@ -43,17 +43,17 @@ class Executor(ABC, Generic[T]):
                 system=self.system_prompt,
                 user=user_input
             )
-            
+
             output = await self.client.achat(
                 messages=messages,
             )
-            
+
             return ExecutionResult(
                 item=item,
                 output=output,
                 model_name=self.client.llm_config["model"]
             )
-        
+
         except Exception as e:
             _logger.error(f"Execution failed for item: {e}")
             return ExecutionResult(
@@ -62,7 +62,7 @@ class Executor(ABC, Generic[T]):
                 model_name=self.client.llm_config["model"],
                 error=str(e)
             )
-    
+
     @abstractmethod
     async def execute(self) -> list[ExecutionResult[T]]:
         """

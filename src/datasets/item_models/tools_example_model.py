@@ -21,6 +21,6 @@ class ToolsExample(DatasetItem):
 
     def input(self) -> str:
         return self.question
-    
+
     def expected_output(self) -> str:
         return self.answer

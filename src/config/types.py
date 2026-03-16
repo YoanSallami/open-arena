@@ -135,15 +135,15 @@ class ExperimentsFile(BaseModel):
         ...,
         description="Evaluation configuration for scoring experiment results.",
     )
-    
+
     @classmethod
     def from_yaml(cls, yaml_path: str | Path) -> "ExperimentsFile":
         """
         Load and validate ExperimentsFile from a YAML file.
-        
+
         Uses Pydantic's validation to ensure the YAML structure matches
         the expected schema.
-        
+
         :param yaml_path: Path to the YAML configuration file
         :return: Validated ExperimentsFile instance
         :raises FileNotFoundError: If the YAML file doesn't exist
@@ -151,11 +151,11 @@ class ExperimentsFile(BaseModel):
         :raises yaml.YAMLError: If the file contains invalid YAML syntax
         """
         config_file = Path(yaml_path)
-        
+
         if not config_file.exists():
             raise FileNotFoundError(f"File not found: {yaml_path}")
-        
+
         with open(config_file, 'r', encoding='utf-8') as f:
             config_dict = yaml.safe_load(f)
-        
+
         return cls(**config_dict)

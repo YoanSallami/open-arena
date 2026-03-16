@@ -11,7 +11,7 @@ T = TypeVar('T', bound=DatasetItem)
 class EvaluationResult(Generic[T]):
     """
     Result of evaluating a single execution result.
-    
+
     Contains the original execution data plus optional score and explanation.
     """
     item: T

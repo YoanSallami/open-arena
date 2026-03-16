@@ -8,11 +8,11 @@ from src.llms.types import MCPServerConfig
 class LangfuseLLMClient(LLMClient):
     """
     LLM Client with Langfuse observability integration.
-    
+
     Inherits all functionality from LLMClient and adds automatic
     tracing of LLM calls to Langfuse via LangChain callbacks.
     """
-    
+
     def __init__(
         self,
         llm_config: dict[str, Any],
@@ -20,7 +20,7 @@ class LangfuseLLMClient(LLMClient):
     ):
         """
         Initialize LangfuseLLMClient with Langfuse observability.
-        
+
         :param llm_config: LiteLLM model configuration
         :param mcp_servers: List of MCP server configurations
         """
@@ -28,24 +28,24 @@ class LangfuseLLMClient(LLMClient):
         self.langfuse_handler = CallbackHandler()
 
     async def achat(
-        self, 
+        self,
         messages: list[dict[str, str]]
     ) -> str:
         """
         Async chat completion with Langfuse tracing.
-        
+
         :param messages: List of message dicts
         :return: Model response content
         """
         if self._initialized and self.graph:
             langchain_messages = self._convert_messages_to_langchain(messages)
-            
+
             # Invoke graph with Langfuse callback
             result = await self.graph.ainvoke(
                 {"messages": langchain_messages},
                 config={"callbacks": [self.langfuse_handler]}
             )
-            
+
             final_message = result["messages"][-1]
             if hasattr(final_message, "content") and final_message.content:
                 return str(final_message.content)

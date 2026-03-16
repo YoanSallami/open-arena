@@ -1,148 +1,162 @@
-# Multi-Language Model Evaluation Framework 🚀
+# Open Arena 🚀
 
-A framework to evaluate and compare LLMs and tool stacks against a dataset.
+<img src="open-arena.png" width="28%" align="right" alt="Open Arena logo">
 
-Define experiments (model + optional MCP-backed tools) and a dataset; run experiments, collect model I/O and metadata, and score outputs with pluggable evaluation methods.
+Open Arena is a lightweight evaluation framework for benchmarking LLMs and tool-enabled workflows against curated datasets. It combines LiteLLM, Langfuse, LangChain, and optional MCP integrations so experiments can be executed, traced, and scored from a single Python project.
 
 ## ✨ Key Features
 
-- **Generality**: compare arbitrary model + tool combinations; tools are treated as pluggable services and models are provider-agnostic.
-- **Observability**: capture and inspect dataset handling, model I/O, and evaluation results to make experiments auditable and reproducible through Langfuse.
-- **Extensibility**: clear extension points allow adding new dataset formats, evaluation methods, executors, and integrations.
-- **Declarative configuration**: define experiments via YAML configuration files, enabling reproducible runs and easy CI/CD automation.
+- **Experiment orchestration**: run multiple model configurations against the same dataset and compare their outputs consistently.
+- **Tool-enabled evaluation**: support MCP-backed tool calling alongside standard LLM completions.
+- **Langfuse observability**: capture dataset uploads, execution traces, experiment runs, and evaluation scores in one place.
+- **Config-driven workflows**: use `config.yaml` for the current pipeline or `config.example.yaml` for the newer structured CLI flow.
+- **Extensible Python architecture**: swap readers, item models, executors, evaluators, and LLM clients without rewriting the whole pipeline.
+- **Practical runtime defaults**: the branch keeps a direct `python -m src.main` entrypoint while also carrying the packaged and module-based structured CLI introduced from `main`.
 
 ## ⚡ Quickstart
 
-### 🧰 Prerequisites
-- **Python**: 3.11+
-- Access to any **MCP servers**, **LLM provider endpoints**, and other services you plan to use
-- (Recommended) **uv** installed and available in your `PATH`
+### Prerequisites
 
-### 🧑‍💻 Development Setup
+- Python 3.12+
+- Access to the LLM providers and Langfuse instance you want to use
+- `uv` recommended for environment management
 
-#### 📦 Install (from source)
-Clone the repository and set up the environment:
+### Install
 
 ```sh
-cd multi-language-model-evaluation-framework
-```
-
-Sync dependencies:
-
-```sh
+git clone https://github.com/Atena-IT/open-arena.git
+cd open-arena
 uv sync
 ```
 
-Install the project in **editable mode** (recommended for development):
+For local development, install the project in editable mode so module and entrypoint changes are picked up immediately:
 
 ```sh
 uv pip install -e .
 ```
 
-Verify that the CLI entry point is available:
+To verify the Open Arena CLI entry point is available:
 
 ```sh
-mlmef --help
+arena --help
 ```
 
-### 🔒 Environment / Secrets
-Copy `.env.example` to `.env` and fill in the required values:
+### Configure secrets
+
+Copy the example environment file and fill in the required keys:
 
 ```sh
 cp .env.example .env
 ```
 
-- Add all **LiteLLM-related** variables required by the providers you plan to call (refer to each provider’s documentation for the exact names/keys).
-- Fill in the **Langfuse** variables for observability (optional).
+At minimum, configure the Langfuse values plus any provider credentials required by the models defined in `config.yaml` or `config.example.yaml`.
 
-### ⚙️ Configuration
-The YAML schema for experiments is defined by the `ExperimentsFile` model in `src/config/types.py`.
+### Configure experiments
 
-**Important top-level fields:**
-- `dataset`: global dataset configuration (`name`, `source`, `format`, `type`)
-- `system_prompt`: global system prompt applied to experiments
-- `experiments`: list of experiment blocks with per-experiment LiteLLM config and optional MCP server list
-- `evaluation`: evaluation method and judge model config
+The default runtime configuration lives in `config.yaml`. It defines:
 
-<details>
-<summary>Example minimal config</summary>
+- dataset creation settings
+- dataset-specific system prompts
+- the list of models to evaluate
+- the judge model used for evaluation
 
-See the full version in `config.example.yaml`.
+The repository also includes `config.example.yaml`, which documents the structured configuration model added from `main` for the newer CLI workflow. The YAML schema for the structured flow is defined in `src/config/types.py`.
 
-```yaml
-dataset:
-  name: "Example QA Dataset"
-  source: "resources/data/my_dataset.xlsx"
-  format: "excel"
-  type: "QA"
+### Run the pipeline
 
-system_prompt: >
-  You are a helpful AI assistant designed to answer questions accurately.
-
-experiments:
-  - name: "experiment_baseline"
-    litellm:
-      model: "gpt-4o"
-
-evaluation:
-  method: "llm_as_judge"
-  litellm:
-    model: "gpt-4o"
-    temperature: 0.0
-```
-
-</details>
-
-#### 🤖 Supported Providers and Models
-This framework uses **LiteLLM**. Refer to the LiteLLM documentation/model index for supported providers and model IDs.
-
-Provider credentials and configuration are supplied via environment variables (see each provider’s documentation for the required keys).
-
-### ▶️ Run
-Run the CLI using the installed entry point:
+Current branch runtime:
 
 ```sh
-mlmef --config config.example.yaml
+python -m src.main
 ```
 
-Alternatively, run the module directly (useful for debugging):
+Packaged Open Arena CLI flow:
+
+```sh
+arena --config config.example.yaml
+```
+
+Module-based structured CLI flow:
 
 ```sh
 uv run -m src.main_cli --config config.example.yaml
 ```
 
+If you want to reuse an existing Langfuse dataset with the structured CLI, you can skip the upload step:
+
+```sh
+arena --config config.example.yaml --skip-upload
+```
+
 ## 👁️ Observability
 
-### Langfuse Integration ⭐
+Langfuse is used to capture experiment execution and evaluation metadata so model runs can be inspected and compared more easily. Depending on the workflow you use, Open Arena can track:
 
-**Full Langfuse integration is built-in**, providing enterprise-grade observability for your experiments:
-
-- **Datasets**: Automatically uploaded and versioned in Langfuse for reproducibility
-- **Traces**: Each experiment execution creates a trace with complete I/O capture
-- **Generations**: LLM calls are logged with latency, token usage, and cost tracking
-- **Scores**: Evaluation results are automatically attached to traces for easy comparison
+- uploaded dataset items
+- experiment traces and model outputs
+- evaluation results and judge scores
+- metadata for MCP-enabled executions
 
 ## ⚠️ Limitations
 
-- **CLI is currently Langfuse-backed only**: `src/main_cli.py` runs the end-to-end workflow using Langfuse datasets/experiments (dataset upload, execution traces, and score writing). If you want to run without Langfuse (fully in-memory execution + evaluation), you currently need to write a small custom runner that wires together the in-memory components (e.g., `DatasetLoader` + `GenericExecutor` + `GenericEvaluator`).
+- **CLI is currently Langfuse-backed only**: `src/main_cli.py` runs the end-to-end workflow using Langfuse datasets and experiment traces. If you want to run without Langfuse, you currently need a small custom runner that wires together the in-memory components such as `DatasetLoader`, `GenericExecutor`, and `GenericEvaluator`.
+
+## 🧱 Project Layout
+
+```text
+open-arena/
+├── config.yaml
+├── config.example.yaml
+├── open-arena.png
+├── pyproject.toml
+├── resources/
+└── src/
+    ├── datasets/
+    ├── evaluator/
+    ├── evaluation/
+    ├── execution/
+    ├── llms/
+    ├── mcp_server/
+    ├── main.py
+    └── main_cli.py
+```
+
+## 🔍 Notes
+
+- The current entrypoint loads `config.yaml` by default.
+- `config.example.yaml` documents the newer structured configuration introduced from `main`.
+- Test utilities live under `src/test/`.
+- A lightweight syntax validation can be run with `python -m compileall src`.
+
+## 🧪 Validation
+
+For a quick local validation pass, use:
+
+```sh
+python -m compileall src
+```
+
+If you are working on the structured CLI path, validate your YAML configuration before running long experiments by checking it against the Pydantic-backed schema in `src/config/types.py`.
 
 ## 🤝 Contributing
 
-This framework is designed with extensibility in mind. We welcome contributions that expand capabilities:
+Open issues and pull requests are welcome. Please keep documentation and configuration examples aligned with the current runtime behavior when changing the evaluation pipeline.
 
-- **New dataset formats**: JSON, Parquet, databases, APIs
-- **Evaluation metrics**: Custom scoring methods, domain-specific evaluators
-- **Observability integrations**: Alternative to Langfuse (Weights & Biases, MLflow, etc.)
+Suggested workflow:
 
-And much more!
+1. Fork the repository and create a focused branch from `develop`.
+2. Install dependencies with `uv sync` and configure `.env` from `.env.example`.
+3. Make the smallest possible change that solves the issue.
+4. Run the relevant validation for the area you touched.
+5. Update documentation or examples when behavior changes.
+6. Open a pull request with a clear description of the change.
 
-### ❓ How to Contribute
+### Commit Convention
 
-1. **Report bugs**: Open an issue with reproduction steps
-2. **Suggest features**: Describe your use case and proposed solution
-3. **Submit PRs**: Include tests and update documentation
-4. **Improve docs**: Fix typos, add examples, clarify instructions
+This repository follows **Conventional Commits**. Please use commit messages such as:
 
-## 📃 License
+- `feat: add structured dataset validation`
+- `fix: handle missing Langfuse dataset items`
+- `docs: expand README contribution guidance`
 
-License to be determined.
+Using the convention keeps the history easier to scan and makes release or changelog automation more reliable.

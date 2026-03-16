@@ -41,7 +41,7 @@ class DatasetItem(BaseModel, ABC):
             :return: Input string
         """
         raise NotImplementedError
-    
+
     @abstractmethod
     def expected_output(self) -> str:
         """
@@ -49,7 +49,7 @@ class DatasetItem(BaseModel, ABC):
             :return: Expected output string (ground truth)
         """
         raise NotImplementedError
-    
+
     def meta(self) -> dict[str, Any]:
         """
         Return:

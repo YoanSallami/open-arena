@@ -48,11 +48,11 @@ def get_item_model(dataset_type: DatasetType) -> type[DatasetItem]:
         DatasetType.ToolScale: ToolScaleItem,
         DatasetType.ToolsExample: ToolsExample,
     }
-    
+
     model = mapping.get(dataset_type)
     if model is None:
         raise ValueError(f"Unsupported dataset type: {dataset_type}")
-    
+
     return model
 
 
@@ -84,10 +84,10 @@ async def get_evaluation_method(config: ExperimentsFile):
 async def load_and_upload_dataset(config: ExperimentsFile) -> list[DatasetItem]:
     """Load dataset and upload to Langfuse."""
     _logger.info(f"Loading dataset: {config.dataset.name} from {config.dataset.source}")
-    
+
     item_model = get_item_model(config.dataset.type)
     reader = get_reader(config.dataset.format)
-    
+
     loader = LangfuseLoader(
         item_model=item_model,
         reader=reader,
@@ -97,7 +97,7 @@ async def load_and_upload_dataset(config: ExperimentsFile) -> list[DatasetItem]:
         },
         input_path="."
     )
-    
+
     dataset = loader.load()
     _logger.info(f"Dataset uploaded to Langfuse: {len(dataset)} items in '{config.dataset.name}'")
 
@@ -245,14 +245,14 @@ async def load_existing_langfuse_dataset(config: ExperimentsFile) -> list[Datase
 async def run_experiments(config: ExperimentsFile, dataset: list[DatasetItem]) -> list[list[ExecutionResult]]:
     """Run all experiments sequentially."""
     _logger.info(f"Preparing {len(config.experiments)} experiments for execution")
-    
+
     all_results = []
-    
+
     for exp_config in config.experiments:
         _logger.info(f"Configuring experiment: {exp_config.name} with model {exp_config.litellm.model}")
-        
+
         llm_config = exp_config.litellm.model_dump()
-        
+
         mcp_servers: list[MCPServerConfig] | None = None
         if exp_config.mcp:
             mcp_servers = [
@@ -267,7 +267,7 @@ async def run_experiments(config: ExperimentsFile, dataset: list[DatasetItem]) -
         )
 
         await lf_client.setup()
-        
+
         executor = LangfuseExecutor(
             dataset=dataset,
             llm_client=lf_client,
@@ -275,56 +275,56 @@ async def run_experiments(config: ExperimentsFile, dataset: list[DatasetItem]) -
             experiment_name=exp_config.name,
             experiment_description=f"Experiment: {exp_config.name} with model {exp_config.litellm.model}"
         )
-        
+
         _logger.info(f"Executing experiment: {exp_config.name}")
         results = await executor.execute()
         all_results.append(results)
-        
+
         errors = sum(1 for r in results if r.error)
         if errors > 0:
             _logger.warning(f"Experiment '{exp_config.name}' completed: {len(results)} items, {errors} errors")
         else:
             _logger.info(f"Experiment '{exp_config.name}' completed successfully: {len(results)} items")
-    
+
     _logger.info("All experiments completed")
-    
+
     return all_results
 
 
 async def run_evaluations(config: ExperimentsFile, all_results: list[list[ExecutionResult]]) -> list[list[EvaluationResult]]:
     """Run evaluations on all experiment results."""
     _logger.info(f"Preparing evaluation for {len(all_results)} experiments")
-    
+
     evaluation_method = await get_evaluation_method(config)
     _logger.info(f"Configuring {config.evaluation.method} with model: {config.evaluation.litellm.model}")
-    
+
     all_eval_results = []
-    
+
     # Evaluate each experiment's results
     for exp_config, results in zip(config.experiments, all_results):
         _logger.info(f"Evaluating experiment: {exp_config.name}")
-        
+
         evaluator = LangfuseEvaluator(
             results=results,
             method=evaluation_method,
             score_name=config.evaluation.score_name or "evaluation_score",
             max_concurrency=config.evaluation.max_concurrency or 10
         )
-        
+
         eval_results = await evaluator.evaluate()
         all_eval_results.append(eval_results)
-        
+
         scored = sum(1 for r in eval_results if r.score is not None)
         errors = sum(1 for r in eval_results if r.error is not None)
         avg_score = sum(r.score for r in eval_results if r.score is not None) / scored if scored > 0 else 0
-        
+
         if errors > 0:
             _logger.warning(f"Evaluation '{exp_config.name}' completed: {scored} scored (avg: {avg_score:.2f}), {errors} errors")
         else:
             _logger.info(f"Evaluation '{exp_config.name}' completed: {scored} scored (avg: {avg_score:.2f})")
-    
+
     _logger.info("All evaluations completed")
-    
+
     return all_eval_results
 
 
@@ -343,22 +343,23 @@ async def run_evaluations(config: ExperimentsFile, all_results: list[list[Execut
 )
 def main(config: str, skip_upload: bool):
     """
-    Run experiments from a YAML configuration file.
-    
+    Run the Open Arena CLI workflow from a YAML configuration file.
+
     This script:
     1. Loads and validates the configuration
     2. Uploads the dataset to Langfuse (unless --skip-upload)
     3. Runs all experiments sequentially
     4. Evaluates all experiment results
     5. Results and scores are automatically tracked in Langfuse
-    
+
     Example:
-        python -m src.main_cli --config experiments.yaml
+        arena --config experiments.yaml
+        arena -c config.yaml --skip-upload
         python -m src.main_cli -c config.yaml --skip-upload
     """
     try:
-        _logger.info("Multi-Language Model Evaluation Framework")
-        
+        _logger.info("Starting Open Arena CLI pipeline")
+
         _logger.info(f"Loading configuration from: {config}")
         try:
             experiments_config = ExperimentsFile.from_yaml(config)
@@ -368,24 +369,24 @@ def main(config: str, skip_upload: bool):
             for error in e.errors():
                 _logger.error(f"  {error['loc']}: {error['msg']}")
             sys.exit(1)
-        
+
         async def workflow():
             if not skip_upload:
                 dataset = await load_and_upload_dataset(experiments_config)
             else:
                 _logger.info("Skipping dataset upload (--skip-upload flag set)")
                 dataset = await load_existing_langfuse_dataset(experiments_config)
-            
+
             results = await run_experiments(experiments_config, dataset)
-            
+
             await run_evaluations(experiments_config, results)
-        
+
         asyncio.run(workflow())
-        
+
         _logger.info("Execution completed successfully")
         _logger.info("View results in Langfuse dashboard")
         sys.exit(0)
-        
+
     except FileNotFoundError as e:
         _logger.error(str(e))
         sys.exit(1)

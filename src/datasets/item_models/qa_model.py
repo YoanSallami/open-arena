@@ -51,10 +51,10 @@ class QAItem(DatasetItem):
             f"C) {self.option_c}\n"
             f"D) {self.option_d}"
         )
-    
+
     def expected_output(self) -> str:
         return self.answer
-    
+
     def meta(self) -> dict[str, Any]:
         return {
             **self.metadata,
