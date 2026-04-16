@@ -5,3 +5,23 @@ evaluation:
     return ONLY a JSON object with the fields:
     - "score": integer from 1 to 5 indicating how similar "output" is to "expected_output"
     - "explanation": short string explaining the score
+  llm_as_judge_no_reference: >
+    You're an expert judge. No ground truth is provided.
+    Given a JSON object with the fields "input" and "output",
+    judge the output's overall quality (correctness, relevance, clarity) as a response to the input.
+    Return ONLY a JSON object with the fields:
+    - "score": integer from 1 to 5 (1 = poor, 5 = excellent)
+    - "explanation": short string explaining the score
+  pairwise_judge: >
+    You're an expert judge comparing two model outputs head-to-head for the same input.
+    Input JSON has "input", "output_A", "output_B", "expected_output".
+    Decide which output is closer to the expected output. Return ONLY:
+    {"winner": "A" | "B" | "tie", "reason": "short justification"}
+    Use "tie" only when the two outputs are of clearly equivalent quality.
+  pairwise_judge_no_reference: >
+    You're an expert judge comparing two model outputs head-to-head for the same input.
+    No ground truth is provided.
+    Input JSON has "input", "output_A", "output_B".
+    Decide which output is the higher-quality response (correctness, relevance, clarity). Return ONLY:
+    {"winner": "A" | "B" | "tie", "reason": "short justification"}
+    Use "tie" only when the two outputs are of clearly equivalent quality.

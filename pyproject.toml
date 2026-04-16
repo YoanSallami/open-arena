@@ -24,9 +24,14 @@ dependencies = [
     "langchain-core",
     "langchain-litellm",
     "langchain-mcp-adapters",
+    "arize-phoenix-client",
+    "braintrust",
     "langfuse>=3.10.1",
     "langgraph>=0.6.6",
+    "langsmith",
     "litellm>=1.80.15",
+    "mlflow>=3.0",
+    "opik",
     "matplotlib",
     "networkx",
     "openai",
@@ -34,18 +39,27 @@ dependencies = [
     "opentelemetry-api",
     "opentelemetry-exporter-otlp",
     "opentelemetry-sdk",
-    "pandas>=2.3.3",
+    "datasets",
+    "jinja2",
+    "polars",
+    "fastexcel",
     "playwright",
     "pydantic>=2",
     "python-dotenv",
     "pyyaml",
     "streamlit",
+    "weave",
     "uvicorn",
     "xlsxwriter>=3.2.9",
 ]
 
 [project.scripts]
 arena = "src.main_cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
@@ -56,3 +70,10 @@ where = ["."]
 
 [tool.setuptools.package-data]
 "src" = ["*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::UserWarning:pydantic",
+]
