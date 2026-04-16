@@ -16,6 +16,7 @@ from src import default_prompts
 from src.evaluation.base import PointwiseEvaluator
 from src.evaluation.evaluators._verifier_reward import (
     build_score_tokens,
+    render_verifier_prompt,
     verifier_reward,
 )
 from src.execution import ExecutionResult
@@ -46,8 +47,10 @@ class LLMAsVerifierEvaluator(PointwiseEvaluator):
         self.repeats = max(1, repeats)
         self._callbacks = list(callbacks or [])
         self._score_tokens = build_score_tokens(granularity)
-        self.system_prompt = _render(system_prompt, self._score_tokens)
-        self.system_prompt_no_reference = _render(system_prompt_no_reference, self._score_tokens)
+        self.system_prompt = render_verifier_prompt(system_prompt, self._score_tokens)
+        self.system_prompt_no_reference = render_verifier_prompt(
+            system_prompt_no_reference, self._score_tokens
+        )
 
     async def _score(
         self,
@@ -76,14 +79,3 @@ class LLMAsVerifierEvaluator(PointwiseEvaluator):
             return None, None, error
         explanation = f"R(t,τ)={reward:.4f} (G={self.granularity}, K={self.repeats})"
         return reward, explanation, None
-
-
-def _render(prompt: str, score_tokens: list[str]) -> str:
-    """Substitute the known placeholders without requiring full str.format
-    semantics (user overrides may contain stray braces)."""
-    return (
-        prompt.replace("{granularity}", str(len(score_tokens)))
-        .replace("{score_letters}", ", ".join(score_tokens))
-        .replace("{best_letter}", score_tokens[0])
-        .replace("{worst_letter}", score_tokens[-1])
-    )

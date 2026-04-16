@@ -3,6 +3,7 @@ from src.evaluation.evaluators import (
     LLMAsJudgeEvaluator,
     LLMAsVerifierEvaluator,
     LLMPairwiseJudgeEvaluator,
+    LLMPairwiseVerifierEvaluator,
     build_evaluator,
     evaluator_mode,
 )
@@ -15,6 +16,7 @@ __all__ = [
     "LLMAsJudgeEvaluator",
     "LLMAsVerifierEvaluator",
     "LLMPairwiseJudgeEvaluator",
+    "LLMPairwiseVerifierEvaluator",
     "build_evaluator",
     "evaluator_mode",
     "EvaluationResult",

@@ -1,9 +1,14 @@
-"""Logprob-based reward helper for the LLM-as-a-Verifier evaluator.
+"""Logprob-based reward helpers for the LLM-as-a-Verifier evaluators.
 
-Prompts the grader to emit one score letter between <score> tags, then
-computes the expected scalar value under its `top_logprobs` distribution
-at that position, averaged over K repeats. Implements G (granularity)
-and K (repeats).
+Implements the reward R(t, τ) = (1/CK) Σ_c Σ_k Σ_g p(v_g|t,c,τ)·φ(v_g)
+from Kwok et al. 2026.
+
+* `verifier_reward` — pointwise: one output, one score tag, one reward.
+* `verifier_pairwise_reward` — pairwise: two outputs in a single prompt,
+  extract logprob distributions at both `<score_A>` and `<score_B>`.
+
+Both helpers reuse the same score-letter extraction and the Ollama →
+OpenAI-compat routing so `logprobs`/`top_logprobs` flow through.
 """
 
 import logging
@@ -55,6 +60,18 @@ def build_score_tokens(granularity: int) -> list[str]:
     return [chr(ord("A") + i) for i in range(granularity)]
 
 
+def render_verifier_prompt(prompt: str, score_tokens: list[str]) -> str:
+    """Substitute the standard verifier placeholders without requiring full
+    `str.format` semantics — user-overridden prompts may contain stray
+    braces (e.g. JSON snippets) that would break `str.format`."""
+    return (
+        prompt.replace("{granularity}", str(len(score_tokens)))
+        .replace("{score_letters}", ", ".join(score_tokens))
+        .replace("{best_letter}", score_tokens[0])
+        .replace("{worst_letter}", score_tokens[-1])
+    )
+
+
 async def verifier_reward(
     llm_config: dict[str, Any],
     system_prompt: str,
@@ -91,16 +108,67 @@ async def verifier_reward(
         except Exception as e:
             errors.append(f"completion failed: {e}")
             continue
-        dist = _extract_score_distribution(response, set(score_tokens))
-        if not dist:
+        dists = _extract_score_distributions(response, set(score_tokens), n=1)
+        if not dists:
             errors.append("no score-token logprobs in response")
             continue
-        expected = sum(prob * value_map[tok] for tok, prob in dist.items())
+        expected = sum(prob * value_map[tok] for tok, prob in dists[0].items())
         rewards.append(expected)
 
     if not rewards:
         return None, "; ".join(dict.fromkeys(errors)) or "no usable samples"
     return sum(rewards) / len(rewards), None
+
+
+async def verifier_pairwise_reward(
+    llm_config: dict[str, Any],
+    system_prompt: str,
+    user_payload: str,
+    granularity: int = 8,
+    repeats: int = 1,
+) -> tuple[tuple[float, float] | None, str | None]:
+    """Pairwise variant: one prompt with both trajectories, extract two
+    score-letter distributions (`<score_A>`, `<score_B>`), return
+    `(R_A, R_B)` averaged over `repeats` samples.
+
+    Matches the paper's headline methodology (Kwok et al. 2026, §3):
+    the grader sees A and B together, which mitigates absolute-scoring
+    drift relative to separate pointwise calls.
+    """
+    score_tokens = build_score_tokens(granularity)
+    n = len(score_tokens)
+    value_map = {tok: float(n - i) for i, tok in enumerate(score_tokens)}
+
+    completion_kwargs = {k: v for k, v in llm_config.items() if v is not None}
+    completion_kwargs = _coerce_ollama_to_openai_compat(completion_kwargs)
+    completion_kwargs.pop("tools", None)
+    completion_kwargs.pop("tool_choice", None)
+    completion_kwargs["logprobs"] = True
+    completion_kwargs["top_logprobs"] = granularity
+    completion_kwargs["messages"] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_payload},
+    ]
+
+    rewards_a: list[float] = []
+    rewards_b: list[float] = []
+    errors: list[str] = []
+    for _ in range(max(1, repeats)):
+        try:
+            response = await litellm.acompletion(**completion_kwargs)
+        except Exception as e:
+            errors.append(f"completion failed: {e}")
+            continue
+        dists = _extract_score_distributions(response, set(score_tokens), n=2)
+        if not dists or len(dists) < 2:
+            errors.append("missing <score_A>/<score_B> logprobs in response")
+            continue
+        rewards_a.append(sum(p * value_map[t] for t, p in dists[0].items()))
+        rewards_b.append(sum(p * value_map[t] for t, p in dists[1].items()))
+
+    if not rewards_a:
+        return None, "; ".join(dict.fromkeys(errors)) or "no usable samples"
+    return (sum(rewards_a) / len(rewards_a), sum(rewards_b) / len(rewards_b)), None
 
 
 def _score_letter(token: str, score_tokens: set[str]) -> str | None:
@@ -124,11 +192,11 @@ def _score_letter(token: str, score_tokens: set[str]) -> str | None:
     return None
 
 
-def _extract_score_distribution(
-    response: Any, score_tokens: set[str]
-) -> dict[str, float] | None:
-    """Find the first response token that carries a score letter, then
-    build a normalized probability distribution from its `top_logprobs`.
+def _extract_score_distributions(
+    response: Any, score_tokens: set[str], n: int = 1
+) -> list[dict[str, float]] | None:
+    """Find the first `n` response tokens that carry a score letter and
+    return their normalised probability distributions, in order.
 
     Because tokenizers often fuse the score letter with adjacent
     punctuation (e.g. `">A"`), we group `top_logprobs` entries by the
@@ -143,6 +211,7 @@ def _extract_score_distribution(
         return None
     content = _get(logprobs, "content", default=None) or []
 
+    dists: list[dict[str, float]] = []
     for token_entry in content:
         tok_text = _get(token_entry, "token", default="") or ""
         if _score_letter(tok_text, score_tokens) is None:
@@ -161,8 +230,10 @@ def _extract_score_distribution(
         total = sum(probs.values())
         if total <= 0:
             continue
-        return {k: v / total for k, v in probs.items()}
-    return None
+        dists.append({k: v / total for k, v in probs.items()})
+        if len(dists) >= n:
+            break
+    return dists or None
 
 
 def _get(obj: Any, attr: str, default: Any = None) -> Any:

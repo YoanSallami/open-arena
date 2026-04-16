@@ -70,16 +70,18 @@ class EvaluationConfig(BaseModel):
         ge=2,
         le=26,
         description=(
-            "Verifier only (method='llm_as_verifier'): number of score "
-            "letters (A..) used for logprob-based scoring. Typical: 8."
+            "Verifier methods only ('llm_as_verifier', 'pairwise_verifier'): "
+            "number of score letters (A..) used for logprob-based scoring. "
+            "Typical: 8."
         ),
     )
     repeats: int | None = Field(
         default=None,
         ge=1,
         description=(
-            "Verifier only (method='llm_as_verifier'): number of repeated "
-            "verification samples to average (K). Typical: 1-16."
+            "Verifier methods only ('llm_as_verifier', 'pairwise_verifier'): "
+            "number of repeated verification samples to average (K). "
+            "Typical: 1-16."
         ),
     )
 
