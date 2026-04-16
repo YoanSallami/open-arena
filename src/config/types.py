@@ -84,6 +84,17 @@ class EvaluationConfig(BaseModel):
             "Typical: 1-16."
         ),
     )
+    criteria: list[str] | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Verifier method only ('llm_as_verifier'): criterion names to "
+            "decompose scoring over (C). Each criterion is scored in its "
+            "own verifier call; the final reward is the arithmetic mean "
+            "across criteria. Omit for a single holistic score. "
+            "Example: ['correctness', 'clarity', 'completeness']."
+        ),
+    )
 
 
 class ExperimentsFile(BaseModel):

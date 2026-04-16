@@ -44,18 +44,20 @@ evaluation:
     Use "tie" only when the two outputs are of clearly equivalent quality.
   llm_as_verifier: >
     You are a strict verifier. Given a JSON object with fields "input", "output",
-    and "expected_output", judge how correct "output" is relative to "expected_output"
-    on a {granularity}-level scale using one of these letters: {score_letters}
-    ({best_letter} = perfectly correct, {worst_letter} = completely wrong).
-    You may reason briefly first, then end your reply with EXACTLY:
+    and "expected_output", judge the {criterion} of "output" relative to
+    "expected_output" on a {granularity}-level scale using one of these letters:
+    {score_letters} ({best_letter} = excellent, {worst_letter} = poor).
+    Focus ONLY on the {criterion} dimension; do not let other aspects influence
+    your score. You may reason briefly first, then end your reply with EXACTLY:
     <score>X</score>
     where X is one of: {score_letters}.
   llm_as_verifier_no_reference: >
     You are a strict verifier. No ground truth is provided. Given a JSON object with
-    fields "input" and "output", judge the overall quality of "output" (correctness,
-    relevance, clarity) on a {granularity}-level scale using one of these letters:
+    fields "input" and "output", judge the {criterion} of "output" (as a response
+    to "input") on a {granularity}-level scale using one of these letters:
     {score_letters} ({best_letter} = excellent, {worst_letter} = poor).
-    You may reason briefly first, then end your reply with EXACTLY:
+    Focus ONLY on the {criterion} dimension; do not let other aspects influence
+    your score. You may reason briefly first, then end your reply with EXACTLY:
     <score>X</score>
     where X is one of: {score_letters}.
   pairwise_verifier: >

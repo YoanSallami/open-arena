@@ -60,15 +60,23 @@ def build_score_tokens(granularity: int) -> list[str]:
     return [chr(ord("A") + i) for i in range(granularity)]
 
 
-def render_verifier_prompt(prompt: str, score_tokens: list[str]) -> str:
+def render_verifier_prompt(
+    prompt: str, score_tokens: list[str], criterion: str = "overall quality"
+) -> str:
     """Substitute the standard verifier placeholders without requiring full
     `str.format` semantics — user-overridden prompts may contain stray
-    braces (e.g. JSON snippets) that would break `str.format`."""
+    braces (e.g. JSON snippets) that would break `str.format`.
+
+    `criterion` fills the `{criterion}` placeholder used by the pointwise
+    verifier for criteria decomposition (Phase 3). Prompts that do not
+    contain `{criterion}` are unaffected.
+    """
     return (
         prompt.replace("{granularity}", str(len(score_tokens)))
         .replace("{score_letters}", ", ".join(score_tokens))
         .replace("{best_letter}", score_tokens[0])
         .replace("{worst_letter}", score_tokens[-1])
+        .replace("{criterion}", criterion)
     )
 
 
