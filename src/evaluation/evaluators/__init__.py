@@ -1,9 +1,11 @@
 from src.evaluation.base import Evaluator
 from src.evaluation.evaluators.llm_as_judge import LLMAsJudgeEvaluator
+from src.evaluation.evaluators.llm_as_verifier import LLMAsVerifierEvaluator
 from src.evaluation.evaluators.pairwise_judge import LLMPairwiseJudgeEvaluator
 
 _EVALUATORS: dict[str, type[Evaluator]] = {
     "llm_as_judge": LLMAsJudgeEvaluator,
+    "llm_as_verifier": LLMAsVerifierEvaluator,
     "pairwise_judge": LLMPairwiseJudgeEvaluator,
 }
 
@@ -20,4 +22,11 @@ def evaluator_mode(method: str) -> str:
     return _EVALUATORS[method].mode
 
 
-__all__ = ["Evaluator", "LLMAsJudgeEvaluator", "LLMPairwiseJudgeEvaluator", "build_evaluator", "evaluator_mode"]
+__all__ = [
+    "Evaluator",
+    "LLMAsJudgeEvaluator",
+    "LLMAsVerifierEvaluator",
+    "LLMPairwiseJudgeEvaluator",
+    "build_evaluator",
+    "evaluator_mode",
+]

@@ -65,6 +65,23 @@ class EvaluationConfig(BaseModel):
             "expected_output. If omitted, the evaluator's default is used."
         ),
     )
+    granularity: int | None = Field(
+        default=None,
+        ge=2,
+        le=26,
+        description=(
+            "Verifier only (method='llm_as_verifier'): number of score "
+            "letters (A..) used for logprob-based scoring. Typical: 8."
+        ),
+    )
+    repeats: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Verifier only (method='llm_as_verifier'): number of repeated "
+            "verification samples to average (K). Typical: 1-16."
+        ),
+    )
 
 
 class ExperimentsFile(BaseModel):

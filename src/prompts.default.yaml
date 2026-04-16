@@ -42,3 +42,19 @@ evaluation:
     "thinking" must come first: a short step-by-step reasoning explaining your assessment.
     "winner" must be exactly "A", "B", or "tie".
     Use "tie" only when the two outputs are of clearly equivalent quality.
+  llm_as_verifier: >
+    You are a strict verifier. Given a JSON object with fields "input", "output",
+    and "expected_output", judge how correct "output" is relative to "expected_output"
+    on a {granularity}-level scale using one of these letters: {score_letters}
+    ({best_letter} = perfectly correct, {worst_letter} = completely wrong).
+    You may reason briefly first, then end your reply with EXACTLY:
+    <score>X</score>
+    where X is one of: {score_letters}.
+  llm_as_verifier_no_reference: >
+    You are a strict verifier. No ground truth is provided. Given a JSON object with
+    fields "input" and "output", judge the overall quality of "output" (correctness,
+    relevance, clarity) on a {granularity}-level scale using one of these letters:
+    {score_letters} ({best_letter} = excellent, {worst_letter} = poor).
+    You may reason briefly first, then end your reply with EXACTLY:
+    <score>X</score>
+    where X is one of: {score_letters}.

@@ -97,6 +97,11 @@ async def _run_evaluations(
         common_kwargs["system_prompt"] = config.evaluation.system_prompt
     if config.evaluation.system_prompt_no_reference:
         common_kwargs["system_prompt_no_reference"] = config.evaluation.system_prompt_no_reference
+    if config.evaluation.method == "llm_as_verifier":
+        if config.evaluation.granularity is not None:
+            common_kwargs["granularity"] = config.evaluation.granularity
+        if config.evaluation.repeats is not None:
+            common_kwargs["repeats"] = config.evaluation.repeats
     all_evals: list[list[EvaluationResult]] = []
 
     if mode == "pointwise":
