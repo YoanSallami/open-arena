@@ -49,7 +49,7 @@ class Dataset(ABC):
                 break
             metadata = {k: v for k, v in row.items() if k not in self._referenced}
             yield (
-                self._input_tpl.render(**row),
-                self._expected_output_tpl.render(**row),
+                self._input_tpl.render(row=row, **row),
+                self._expected_output_tpl.render(row=row, **row),
                 metadata,
             )
