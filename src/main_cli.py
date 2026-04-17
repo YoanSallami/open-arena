@@ -167,7 +167,7 @@ def main(config_path: str, skip_upload: bool):
             elif skip_upload:
                 rows = attach_existing_dataset(rows, config.dataset.name)
             else:
-                rows = upload_rows(rows, dataset_name=config.dataset.name, description=config.dataset.description or "")
+                rows = await upload_rows(rows, dataset_name=config.dataset.name, description=config.dataset.description or "")
             results = await _run_experiments(config, rows)
             await _run_evaluations(config, results)
             get_client().flush()

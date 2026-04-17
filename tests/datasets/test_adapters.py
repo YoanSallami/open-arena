@@ -372,21 +372,22 @@ def test_weave_adapter():
 # ---------------------------------------------------------------------------
 
 def test_mlflow_adapter():
-    import pandas as pd
+    import polars as pl
 
+    records = pl.DataFrame([
+        {
+            "dataset_record_id": "rec-1",
+            "inputs": {"question": "q1"},
+            "expectations": {"answer": "a1"},
+            "tags": {"topic": "cells"},
+        },
+    ]).to_dicts()
+    fake_df = MagicMock()
+    fake_df.to_dict.return_value = records
     fake_dataset = MagicMock()
     fake_dataset.dataset_id = "mlflow-ds-id"
     fake_dataset.name = "mmlu"
-    fake_dataset.to_df.return_value = pd.DataFrame(
-        [
-            {
-                "dataset_record_id": "rec-1",
-                "inputs": {"question": "q1"},
-                "expectations": {"answer": "a1"},
-                "tags": {"topic": "cells"},
-            },
-        ]
-    )
+    fake_dataset.to_df.return_value = fake_df
 
     with patch(
         "src.datasets.dataset_adapters.mlflow.get_dataset",
@@ -537,18 +538,20 @@ def _setup_weave(tmp_path):
 
 
 def _setup_mlflow(tmp_path):
-    import pandas as pd
+    import polars as pl
 
-    df = pd.DataFrame(_five(lambda i: {
+    records = pl.DataFrame(_five(lambda i: {
         "dataset_record_id": f"r{i}",
         "inputs": {"q": f"q{i}"},
         "expectations": {"a": f"a{i}"},
         "tags": {},
-    }))
+    })).to_dicts()
+    fake_df = MagicMock()
+    fake_df.to_dict.return_value = records
     dataset = MagicMock()
     dataset.dataset_id = "d"
     dataset.name = "x"
-    dataset.to_df.return_value = df
+    dataset.to_df.return_value = fake_df
     return {
         "source": {"provider": "mlflow"},
         "input_template": "{{ inputs.q }}",

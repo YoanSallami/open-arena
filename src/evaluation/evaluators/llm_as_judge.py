@@ -22,8 +22,9 @@ class LLMAsJudgeEvaluator(PointwiseEvaluator):
     - With `expected_output`: judges similarity to ground truth.
     - Without: judges output quality from input alone.
 
-    Uses `ChatLiteLLM.with_structured_output(JudgeResponse)` so the judge
-    returns a validated Pydantic instance; no manual parsing.
+    Uses `ChatLiteLLM.with_structured_output(JudgeResponse, method="json_schema",
+    strict=True)` so the judge returns a validated Pydantic instance via the
+    provider's constrained-decoding / strict JSON schema path when available.
     """
 
     def __init__(
@@ -40,7 +41,9 @@ class LLMAsJudgeEvaluator(PointwiseEvaluator):
         self.system_prompt = system_prompt
         self.system_prompt_no_reference = system_prompt_no_reference
         self._callbacks = list(callbacks or [])
-        self._judge = build_chat_model(llm_config).with_structured_output(JudgeResponse)
+        self._judge = build_chat_model(llm_config).with_structured_output(
+            JudgeResponse, method="json_schema", strict=True
+        )
 
     async def _score(
         self,

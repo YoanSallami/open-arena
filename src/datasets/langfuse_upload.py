@@ -1,12 +1,12 @@
+import asyncio
 import json
 import logging
 from collections import defaultdict, deque
 from collections.abc import Iterable
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from langfuse import get_client
-from tqdm import tqdm
+from tqdm.asyncio import tqdm as async_tqdm
 
 from src.datasets.base import Row
 
@@ -22,11 +22,11 @@ def _ensure_dataset(langfuse, name: str, description: str = "") -> None:
         langfuse.create_dataset(name=name, description=description)
 
 
-def upload_rows(
+async def upload_rows(
     rows: Iterable[Row],
     dataset_name: str,
     description: str = "",
-    max_workers: int = 12,
+    max_concurrency: int = 12,
 ) -> list[Row]:
     """
     Create/get the Langfuse dataset and upload each row. Returns new rows with
@@ -41,14 +41,18 @@ def upload_rows(
     langfuse = get_client()
     _ensure_dataset(langfuse, dataset_name, description)
 
-    def _upload_one(row: Row) -> Row:
+    semaphore = asyncio.Semaphore(max_concurrency)
+
+    async def _upload_one(row: Row) -> Row:
         input_, expected, metadata = row
-        created = langfuse.create_dataset_item(
-            dataset_name=dataset_name,
-            input=input_,
-            expected_output=expected,
-            metadata=metadata,
-        )
+        async with semaphore:
+            created = await asyncio.to_thread(
+                langfuse.create_dataset_item,
+                dataset_name=dataset_name,
+                input=input_,
+                expected_output=expected,
+                metadata=metadata,
+            )
         return (
             input_,
             expected,
@@ -61,13 +65,12 @@ def upload_rows(
         )
 
     uploaded: list[Row] = []
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(_upload_one, r) for r in rows]
-        for future in tqdm(as_completed(futures), total=len(futures), desc="Uploading to Langfuse"):
-            try:
-                uploaded.append(future.result())
-            except Exception as e:
-                _logger.error(f"Upload failed for row: {e}")
+    tasks = [_upload_one(r) for r in rows]
+    for coro in async_tqdm.as_completed(tasks, total=len(tasks), desc="Uploading to Langfuse"):
+        try:
+            uploaded.append(await coro)
+        except Exception as e:
+            _logger.error(f"Upload failed for row: {e}")
 
     return uploaded
 

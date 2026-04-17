@@ -45,7 +45,9 @@ class LLMPairwiseJudgeEvaluator(GroupEvaluator):
         self.system_prompt = system_prompt
         self.system_prompt_no_reference = system_prompt_no_reference
         self._callbacks = list(callbacks or [])
-        self._judge = build_chat_model(llm_config).with_structured_output(PairwiseVerdict)
+        self._judge = build_chat_model(llm_config).with_structured_output(
+            PairwiseVerdict, method="json_schema", strict=True
+        )
 
     async def _score_group(
         self,
@@ -124,7 +126,8 @@ class LLMPairwiseJudgeEvaluator(GroupEvaluator):
         ])
 
         try:
-            return await self._judge.ainvoke(messages, config={"callbacks": self._callbacks})
+            async with self._judge_semaphore:
+                return await self._judge.ainvoke(messages, config={"callbacks": self._callbacks})
         except Exception as e:
             _logger.error(f"Pair judgement failed ({name_a} vs {name_b}): {e}")
             return None

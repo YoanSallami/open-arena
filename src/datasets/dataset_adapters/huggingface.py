@@ -17,6 +17,12 @@ class HuggingFaceDataset(Dataset):
         streaming: bool = True,
         limit: int | None = None,
     ):
+        if streaming and limit is None:
+            raise ValueError(
+                f"HuggingFace dataset '{repo}' has streaming=True but no limit set. "
+                "Streaming datasets can be unbounded — set `limit` in the dataset config "
+                "or use streaming: false to load the full split into memory."
+            )
         super().__init__(name, input_template, expected_output_template, limit)
         self.repo = repo
         self.hf_config = config

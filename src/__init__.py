@@ -1,10 +1,17 @@
 """Open Arena shared paths, configuration helpers, and packaged prompts."""
 
 import os
+import warnings
 from importlib.resources import files
 from pathlib import Path
 
 import yaml
+
+# Transitive deps (polyfile-weave → chardet 7.x) pull in a chardet newer than
+# requests' declared compat range. requests prefers charset_normalizer at
+# runtime, so the warning is noise — silence it before requests is imported.
+warnings.filterwarnings("ignore", message=r".*chardet.*doesn't match a supported version.*")
+warnings.filterwarnings("ignore", message=r".*urllib3.*doesn't match a supported version.*")
 
 REPOSITORY_LOCATION = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 RESOURCES_LOCATION = os.path.join(REPOSITORY_LOCATION, "resources")

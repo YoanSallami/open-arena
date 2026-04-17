@@ -74,16 +74,24 @@ class PointwiseEvaluator(Evaluator):
         raise NotImplementedError
 
     async def evaluate(self) -> list[EvaluationResult]:
-        semaphore = asyncio.Semaphore(self.max_concurrency)
+        queue: asyncio.Queue[ExecutionResult] = asyncio.Queue()
+        for r in self.results:
+            queue.put_nowait(r)
 
-        async def _run(result: ExecutionResult) -> EvaluationResult:
-            async with semaphore:
-                return await self._evaluate_one(result)
-
-        tasks = [_run(r) for r in self.results]
         eval_results: list[EvaluationResult] = []
-        for coro in async_tqdm.as_completed(tasks, total=len(tasks), desc="Evaluating items"):
-            eval_results.append(await coro)
+        pbar = async_tqdm(total=len(self.results), desc="Evaluating items")
+
+        async def _worker() -> None:
+            while not queue.empty():
+                try:
+                    result = queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                eval_results.append(await self._evaluate_one(result))
+                pbar.update(1)
+
+        await asyncio.gather(*[_worker() for _ in range(self.max_concurrency)])
+        pbar.close()
 
         self.langfuse.flush()
         return eval_results
@@ -158,16 +166,26 @@ class GroupEvaluator(Evaluator):
         raise NotImplementedError
 
     async def evaluate(self) -> list[EvaluationResult]:
-        semaphore = asyncio.Semaphore(self.max_concurrency)
+        self._judge_semaphore = asyncio.Semaphore(self.max_concurrency)
 
-        async def _run(group: dict[str, ExecutionResult]) -> list[EvaluationResult]:
-            async with semaphore:
-                return await self._evaluate_group(group)
+        queue: asyncio.Queue[dict[str, ExecutionResult]] = asyncio.Queue()
+        for g in self.groups:
+            queue.put_nowait(g)
 
-        tasks = [_run(g) for g in self.groups]
         all_results: list[EvaluationResult] = []
-        for coro in async_tqdm.as_completed(tasks, total=len(tasks), desc="Evaluating groups"):
-            all_results.extend(await coro)
+        pbar = async_tqdm(total=len(self.groups), desc="Evaluating groups")
+
+        async def _worker() -> None:
+            while not queue.empty():
+                try:
+                    group = queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                all_results.extend(await self._evaluate_group(group))
+                pbar.update(1)
+
+        await asyncio.gather(*[_worker() for _ in range(self.max_concurrency)])
+        pbar.close()
 
         self.langfuse.flush()
         return all_results

@@ -64,16 +64,25 @@ class Executor:
             raise ValueError("Rows must have 'lf_dataset_id' in metadata")
 
         run_name = f"{self.experiment_name} - {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S+00:00')}"
-        semaphore = asyncio.Semaphore(self.max_concurrency)
 
-        async def _run(row: Row) -> ExecutionResult:
-            async with semaphore:
-                return await self._execute_row(row, run_name, dataset_id)
+        queue: asyncio.Queue[Row] = asyncio.Queue()
+        for row in self.dataset:
+            queue.put_nowait(row)
 
-        tasks = [_run(row) for row in self.dataset]
         results: list[ExecutionResult] = []
-        for coro in async_tqdm.as_completed(tasks, total=len(tasks), desc="Executing items"):
-            results.append(await coro)
+        pbar = async_tqdm(total=len(self.dataset), desc="Executing items")
+
+        async def _worker() -> None:
+            while not queue.empty():
+                try:
+                    row = queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                results.append(await self._execute_row(row, run_name, dataset_id))
+                pbar.update(1)
+
+        await asyncio.gather(*[_worker() for _ in range(self.max_concurrency)])
+        pbar.close()
         return results
 
     async def _execute_row(

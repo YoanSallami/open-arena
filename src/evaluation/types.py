@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -18,5 +18,5 @@ class EvaluationResult:
 
 
 class JudgeResponse(BaseModel):
-    score: int = Field(..., description="Integer score from 1 to 5", ge=1, le=5)
+    score: Literal[1, 2, 3, 4, 5] = Field(..., description="Integer score from 1 to 5")
     explanation: str = Field(..., description="Explanation for the score")
