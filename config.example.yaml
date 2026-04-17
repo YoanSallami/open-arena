@@ -275,12 +275,13 @@ experiments:
 #   - llm_as_judge    (pointwise)  — scores each output independently
 #                                    against expected_output (or without
 #                                    reference if none was produced).
-#                                    Returns integer 1-5, Langfuse score.
+#                                    The judge returns a 1-5 rating, which
+#                                    is normalized to a 0-1 Langfuse score.
 #   - pairwise_judge  (group)      — round-robin tournament across all
 #                                    experiments; each pair is judged twice
 #                                    with positions swapped to mitigate
-#                                    position bias. Per-model score =
-#                                    win_rate * 5.
+#                                    position bias. Per-model Langfuse
+#                                    score = win_rate (0-1).
 #
 # Both evaluators use ChatLiteLLM.with_structured_output(schema) for
 # validated JSON output; no manual JSON parsing anywhere.
