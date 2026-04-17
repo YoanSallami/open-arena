@@ -81,15 +81,17 @@ dataset:
 #     provider: "local"
 #     path: "resources/data/QA_sample.csv"
 #     format: "csv"                   # "csv" | "excel"
-#   # Column headers are exposed as normalized template variables.
-#   # Example: "Question" -> question, "Option A" -> option_a, "Answer" -> answer
+#   # Local file column headers are exposed using their original names.
+#   # For headers with spaces/case, use bracket access (for example:
+#   # row["Question"], row["Option A"], row["Answer"]). If you prefer
+#   # {{ question }}-style access, use snake_case column headers in the file.
 #   input: |
-#     {{ question }}
-#     A) {{ option_a }}
-#     B) {{ option_b }}
-#     C) {{ option_c }}
-#     D) {{ option_d }}
-#   expected_output: "{{ answer }}"
+#     {{ row["Question"] }}
+#     A) {{ row["Option A"] }}
+#     B) {{ row["Option B"] }}
+#     C) {{ row["Option C"] }}
+#     D) {{ row["Option D"] }}
+#   expected_output: "{{ row["Answer"] }}"
 
 # --- Alternative: existing Langfuse dataset ------------------------------
 # Items come from Langfuse already, so no upload happens. Item fields are
