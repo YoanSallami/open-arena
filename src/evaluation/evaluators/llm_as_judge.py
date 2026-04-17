@@ -79,4 +79,4 @@ class LLMAsJudgeEvaluator(PointwiseEvaluator):
         except Exception as e:
             return None, None, str(e)
 
-        return float(parsed.score), parsed.thinking, None
+        return (parsed.score - 1) / 4.0, parsed.thinking, None

@@ -96,7 +96,7 @@ class LLMPairwiseJudgeEvaluator(GroupEvaluator):
             reasons.append(f"{a} vs {b}: {verdict.winner} — {verdict.thinking}")
 
         total_per_model = 2 * (len(models) - 1)
-        scores = {m: (wins[m] / total_per_model) * 5.0 for m in models}
+        scores = {m: wins[m] / total_per_model for m in models}
         explanation = "\n".join(reasons)
         error = f"{failures} pair judgements failed" if failures else None
         return scores, explanation, error
