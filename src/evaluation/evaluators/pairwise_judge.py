@@ -31,7 +31,7 @@ class LLMPairwiseJudgeEvaluator(GroupEvaluator):
 
     For each group of N model outputs, runs all `N*(N-1)/2` pairs and each
     pair twice with positions swapped (position-bias mitigation). Per-model
-    score = win rate × 5 (ties count as 0.5 win).
+    score = win rate in [0, 1] (ties count as 0.5 win).
     """
 
     def __init__(

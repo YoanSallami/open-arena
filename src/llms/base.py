@@ -74,7 +74,7 @@ def build_chat_model(llm_config: dict[str, Any]) -> ChatLiteLLM:
     base = {k: v for k, v in llm_config.items() if k in known}
     extras = {k: v for k, v in llm_config.items() if k not in known and v is not None}
     if extras:
-        base.setdefault("model_kwargs", {}).update(extras)
+        base["model_kwargs"] = {**(base.get("model_kwargs") or {}), **extras}
     return ChatLiteLLM(**base)
 
 
