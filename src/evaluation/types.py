@@ -18,5 +18,5 @@ class EvaluationResult:
 
 
 class JudgeResponse(BaseModel):
+    thinking: str = Field(..., description="Step-by-step reasoning before scoring")
     score: Literal[1, 2, 3, 4, 5] = Field(..., description="Integer score from 1 to 5")
-    explanation: str = Field(..., description="Explanation for the score")

@@ -5,6 +5,9 @@ import logging
 from typing import Any, Literal
 
 from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.exceptions import OutputParserException
+
+_RETRY_EXCEPTIONS = (OutputParserException,)
 from pydantic import BaseModel, Field
 
 from dataclasses import asdict
@@ -19,8 +22,8 @@ _logger = logging.getLogger(__name__)
 
 
 class PairwiseVerdict(BaseModel):
+    thinking: str = Field(..., description="Step-by-step reasoning before choosing a winner.")
     winner: Literal["A", "B", "tie"] = Field(..., description="Which output wins, or 'tie'.")
-    reason: str = Field(..., description="Short justification for the verdict.")
 
 
 class LLMPairwiseJudgeEvaluator(GroupEvaluator):
@@ -39,6 +42,7 @@ class LLMPairwiseJudgeEvaluator(GroupEvaluator):
         system_prompt_no_reference: str = default_prompts["evaluation"]["pairwise_judge_no_reference"],
         score_name: str = "pairwise_score",
         max_concurrency: int = 10,
+        max_retries: int = 3,
         callbacks: list[BaseCallbackHandler] | None = None,
     ):
         super().__init__(groups=groups, score_name=score_name, max_concurrency=max_concurrency)
@@ -47,7 +51,7 @@ class LLMPairwiseJudgeEvaluator(GroupEvaluator):
         self._callbacks = list(callbacks or [])
         self._judge = build_chat_model(llm_config).with_structured_output(
             PairwiseVerdict, method="json_schema", strict=True
-        )
+        ).with_retry(retry_if_exception_type=_RETRY_EXCEPTIONS, stop_after_attempt=max_retries)
 
     async def _score_group(
         self,
@@ -89,7 +93,7 @@ class LLMPairwiseJudgeEvaluator(GroupEvaluator):
             else:
                 wins[a] += 0.5
                 wins[b] += 0.5
-            reasons.append(f"{a} vs {b}: {verdict.winner} — {verdict.reason}")
+            reasons.append(f"{a} vs {b}: {verdict.winner} — {verdict.thinking}")
 
         total_per_model = 2 * (len(models) - 1)
         scores = {m: (wins[m] / total_per_model) * 5.0 for m in models}
