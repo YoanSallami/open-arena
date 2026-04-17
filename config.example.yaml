@@ -81,13 +81,15 @@ dataset:
 #     provider: "local"
 #     path: "resources/data/QA_sample.csv"
 #     format: "csv"                   # "csv" | "excel"
+#   # Column headers are exposed as normalized template variables.
+#   # Example: "Question" -> question, "Option A" -> option_a, "Answer" -> answer
 #   input: |
-#     {{ Question }}
-#     A) {{ "Option A" }}
-#     B) {{ "Option B" }}
-#     C) {{ "Option C" }}
-#     D) {{ "Option D" }}
-#   expected_output: "{{ Answer }}"
+#     {{ question }}
+#     A) {{ option_a }}
+#     B) {{ option_b }}
+#     C) {{ option_c }}
+#     D) {{ option_d }}
+#   expected_output: "{{ answer }}"
 
 # --- Alternative: existing Langfuse dataset ------------------------------
 # Items come from Langfuse already, so no upload happens. Item fields are
