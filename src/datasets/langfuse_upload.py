@@ -65,12 +65,20 @@ async def upload_rows(
         )
 
     uploaded: list[Row] = []
+    errors: list[str] = []
     tasks = [_upload_one(r) for r in rows]
     for coro in async_tqdm.as_completed(tasks, total=len(tasks), desc="Uploading to Langfuse"):
         try:
             uploaded.append(await coro)
         except Exception as e:
+            errors.append(str(e))
             _logger.error(f"Upload failed for row: {e}")
+
+    if errors:
+        raise RuntimeError(
+            f"{len(errors)}/{len(rows)} row uploads failed. "
+            f"First error: {errors[0]}"
+        )
 
     return uploaded
 

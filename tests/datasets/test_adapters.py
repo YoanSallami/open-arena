@@ -107,6 +107,7 @@ def test_huggingface_adapter():
             },
             input_template="{{ question }}",
             expected_output_template="{{ answer }}",
+            limit=10,
         )
         rows = list(dataset)
 
@@ -435,6 +436,7 @@ def _setup_huggingface(tmp_path):
     rows = _five(lambda i: {"q": f"q{i}", "a": f"a{i}"})
     return {
         "source": {"provider": "huggingface", "repo": "fake/repo"},
+        "limit": 10,
         "input_template": "{{ q }}",
         "expected_output_template": "{{ a }}",
         "patches": [patch("datasets.load_dataset", return_value=rows)],
