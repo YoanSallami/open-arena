@@ -95,7 +95,11 @@ async def verifier_reward(
     """
     score_tokens = build_score_tokens(granularity)
     n = len(score_tokens)
-    value_map = {tok: float(n - i) for i, tok in enumerate(score_tokens)}
+    # Normalise score letters to [0, 1] so the verifier's Langfuse score is
+    # directly comparable with the judge evaluators (which also emit [0, 1]).
+    # A (best) → 1.0, worst → 0.0. EvaluationConfig enforces granularity >= 2
+    # so n - 1 >= 1 and there is no divide-by-zero risk.
+    value_map = {tok: (n - 1 - i) / (n - 1) for i, tok in enumerate(score_tokens)}
 
     completion_kwargs = {k: v for k, v in llm_config.items() if v is not None}
     completion_kwargs = _coerce_ollama_to_openai_compat(completion_kwargs)
@@ -145,7 +149,7 @@ async def verifier_pairwise_reward(
     """
     score_tokens = build_score_tokens(granularity)
     n = len(score_tokens)
-    value_map = {tok: float(n - i) for i, tok in enumerate(score_tokens)}
+    value_map = {tok: (n - 1 - i) / (n - 1) for i, tok in enumerate(score_tokens)}
 
     completion_kwargs = {k: v for k, v in llm_config.items() if v is not None}
     completion_kwargs = _coerce_ollama_to_openai_compat(completion_kwargs)
