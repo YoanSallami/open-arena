@@ -9,9 +9,9 @@ Open Arena is a lightweight evaluation framework for benchmarking LLMs and tool-
 - **Experiment orchestration**: run multiple model configurations against the same dataset and compare their outputs consistently.
 - **Tool-enabled evaluation**: support MCP-backed tool calling alongside standard LLM completions.
 - **Langfuse observability**: capture dataset uploads, execution traces, experiment runs, and evaluation scores in one place.
-- **Config-driven workflows**: use `config.yaml` for the current pipeline or `config.example.yaml` for the newer structured CLI flow.
-- **Extensible Python architecture**: swap readers, item models, executors, evaluators, and LLM clients without rewriting the whole pipeline.
-- **Practical runtime defaults**: the branch keeps a direct `python -m src.main` entrypoint while also carrying the packaged and module-based structured CLI introduced from `main`.
+- **Pluggable dataset sources**: fetch evaluation items from local CSV/Excel, HuggingFace, Langfuse, LangSmith, Arize Phoenix, Opik (Comet), Braintrust, Weave, or MLflow — shaped into `(input, expected_output, metadata)` via Jinja2 templates.
+- **Config-driven workflows**: a single `config.yaml` describes the dataset source, templates, experiments, and evaluation in one document.
+- **Extensible Python architecture**: add a new dataset source by dropping a module in `src/datasets/dataset_adapters/`; evaluators and LLM clients are similarly modular.
 
 ## ⚡ Quickstart
 
@@ -53,40 +53,61 @@ At minimum, configure the Langfuse values plus any provider credentials required
 
 ### Configure experiments
 
-The default runtime configuration lives in `config.yaml`. It defines:
+The runtime configuration lives in a single YAML file (see `config.example.yaml` for a fully annotated example). It defines:
 
-- dataset creation settings
-- dataset-specific system prompts
-- the list of models to evaluate
-- the judge model used for evaluation
+- the dataset source and Jinja2 templates that shape each row
+- the system prompt applied to every experiment
+- the list of experiments (LiteLLM model config + optional MCP tool servers)
+- the evaluator (`llm_as_judge` or `llm_as_verifier`) and grader model
 
-The repository also includes `config.example.yaml`, which documents the structured configuration model added from `main` for the newer CLI workflow. The YAML schema for the structured flow is defined in `src/config/types.py`.
+The YAML schema is validated against the Pydantic models in `src/config/types.py`.
 
 ### Run the pipeline
 
-Current branch runtime:
-
 ```sh
-python -m src.main
+arena --config config.yaml
 ```
 
-Packaged Open Arena CLI flow:
+To reuse an existing Langfuse dataset (skip the upload step):
 
 ```sh
-arena --config config.example.yaml
+arena --config config.yaml --skip-upload
 ```
 
-Module-based structured CLI flow:
+When `dataset.source.provider` is `"langfuse"`, the upload is skipped automatically — items already live in Langfuse.
 
-```sh
-uv run -m src.main_cli --config config.example.yaml
+## 📚 Dataset Sources
+
+The `dataset.source.provider` field selects which adapter fetches raw rows. Every adapter produces a stream of dicts; two Jinja2 templates (`input` and `expected_output`) turn each dict into a Record. Columns not referenced by a template flow through as metadata.
+
+| Provider | Fetches from | Notes |
+|----------|--------------|-------|
+| `local` | CSV / Excel file on disk | `path`, `format` (`csv` \| `excel`) |
+| `huggingface` | `datasets.load_dataset(repo, config, split)` | Streaming by default; supports `revision` pinning |
+| `langfuse` | `get_client().get_dataset(name).items` | Upload is skipped automatically (items already in Langfuse) |
+| `langsmith` | `Client().list_examples(dataset_name=...)` | Server-side `limit` push-down |
+| `phoenix` | Arize Phoenix `datasets.get_dataset(...)` | Works against self-hosted or cloud; optional `version_id` pin |
+| `opik` | `Opik().get_dataset(name).get_items()` | Comet Opik; server-side `nb_samples` push-down |
+| `braintrust` | `init_dataset(project, name).fetch()` | Requires `project`; optional `version` pin |
+| `weave` | `weave.ref("<name>:<version>").get()` | W&B Weave; requires `project="entity/project"` |
+| `mlflow` | `mlflow.genai.datasets.get_dataset(name=...)` | Requires MLflow 3 with GenAI datasets |
+
+Each adapter supports `limit: N` to cap the number of rows processed — useful for smoke tests. A source config looks like:
+
+```yaml
+dataset:
+  name: "MMLU Anatomy"
+  source:
+    provider: "huggingface"
+    repo: "cais/mmlu"
+    config: "anatomy"
+    split: "test"
+  input: "{{ question }}\nA) {{ choices[0] }}\nB) {{ choices[1] }}..."
+  expected_output: "{{ ['A','B','C','D'][answer] }}"
+  limit: 100
 ```
 
-If you want to reuse an existing Langfuse dataset with the structured CLI, you can skip the upload step:
-
-```sh
-arena --config config.example.yaml --skip-upload
-```
+See `config.example.yaml` for per-provider snippets.
 
 ## 👁️ Observability
 
@@ -99,7 +120,8 @@ Langfuse is used to capture experiment execution and evaluation metadata so mode
 
 ## ⚠️ Limitations
 
-- **CLI is currently Langfuse-backed only**: `src/main_cli.py` runs the end-to-end workflow using Langfuse datasets and experiment traces. If you want to run without Langfuse, you currently need a small custom runner that wires together the in-memory components such as `DatasetLoader`, `GenericExecutor`, and `GenericEvaluator`.
+- **Tracing is Langfuse-only**: experiment traces and evaluation scores are written to Langfuse regardless of which dataset source you use. A Langfuse instance (self-hosted or cloud) is therefore required.
+- **Single dataset per run**: each `config.yaml` describes one dataset. Running multiple datasets means multiple invocations.
 
 ## 🧱 Project Layout
 
@@ -107,36 +129,37 @@ Langfuse is used to capture experiment execution and evaluation metadata so mode
 open-arena/
 ├── config.yaml
 ├── config.example.yaml
-├── open-arena.png
 ├── pyproject.toml
 ├── resources/
-└── src/
-    ├── datasets/
-    ├── evaluator/
-    ├── evaluation/
-    ├── execution/
-    ├── llms/
-    ├── mcp_server/
-    ├── main.py
-    └── main_cli.py
+├── src/
+│   ├── config/
+│   ├── datasets/
+│   │   ├── base.py
+│   │   ├── dataset_adapters/        # one file per provider
+│   │   └── langfuse_upload.py
+│   ├── evaluation/                  # evaluators (llm_as_judge, llm_as_verifier)
+│   ├── execution/                   # experiment executor
+│   ├── llms/                        # SimpleCaller + AgentCaller
+│   └── main_cli.py                  # `arena` entrypoint
+└── tests/
+    └── datasets/                    # offline adapter tests (mocked clients)
 ```
-
-## 🔍 Notes
-
-- The current entrypoint loads `config.yaml` by default.
-- `config.example.yaml` documents the newer structured configuration introduced from `main`.
-- Test utilities live under `src/test/`.
-- A lightweight syntax validation can be run with `python -m compileall src`.
 
 ## 🧪 Validation
 
-For a quick local validation pass, use:
+Run the offline test suite (no credentials required — all provider clients are mocked):
 
 ```sh
-python -m compileall src
+uv run --with pytest pytest
 ```
 
-If you are working on the structured CLI path, validate your YAML configuration before running long experiments by checking it against the Pydantic-backed schema in `src/config/types.py`.
+For a quick syntax check:
+
+```sh
+uv run python -m compileall src
+```
+
+The YAML configuration is validated against `src/config/types.py` at load time, so bad shapes fail fast before any model call is made.
 
 ## 🤝 Contributing
 

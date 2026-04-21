@@ -1,390 +1,200 @@
 import asyncio
-import json
 import logging
 import sys
 import warnings
-from collections import defaultdict, deque
-from typing import Any, Protocol
 
 import click
 from dotenv import load_dotenv
 from langfuse import get_client
+from langfuse.langchain import CallbackHandler
 from pydantic import ValidationError
 
-from src.config.types import ExperimentsFile, DatasetType
-from src.datasets.loaders import LangfuseLoader
-from src.datasets.readers import ExcelReader, CsvReader
-from src.datasets.item_models import QAItem, ToolScaleItem, ToolsExample, DatasetItem
-from src.execution import LangfuseExecutor
-from src.execution.types import ExecutionResult
-from src.evaluation import LangfuseEvaluator, LLMAsJudge
-from src.evaluation.types import EvaluationResult
-from src.llms import LangfuseLLMClient
+from src.config.types import ExperimentsFile
+from src.datasets import Row, build_dataset
+from src.datasets.langfuse_upload import attach_existing_dataset, upload_rows
+from src.evaluation import EvaluationResult, build_evaluator
+from src.evaluation.evaluators import evaluator_mode
+from src.execution import ExecutionResult, Executor
+from src.llms import AgentCaller, SimpleCaller
 from src.llms.types import MCPServerConfig
 
-warnings.filterwarnings('ignore', category=UserWarning, module='pydantic') # TODO: remove when bug fixed
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 _logger = logging.getLogger(__name__)
-MISSING_ITEM_PREVIEW_LENGTH = 50
 
 load_dotenv()
 
-
-class LangfuseDatasetItemLike(Protocol):
-    id: str
-    input: Any
-    expected_output: Any
-    metadata: dict[str, Any] | None
-
-
-def get_item_model(dataset_type: DatasetType) -> type[DatasetItem]:
-    """Map dataset type to item model class."""
-    mapping = {
-        DatasetType.QA: QAItem,
-        DatasetType.ToolScale: ToolScaleItem,
-        DatasetType.ToolsExample: ToolsExample,
-    }
-
-    model = mapping.get(dataset_type)
-    if model is None:
-        raise ValueError(f"Unsupported dataset type: {dataset_type}")
-
-    return model
-
-
-def get_reader(format: str):
-    """Get appropriate reader based on format."""
-    if format == "excel":
-        return ExcelReader()
-    elif format == "csv":
-        return CsvReader()
-    else:
-        raise ValueError(f"Unsupported format: {format}")
-
-
-async def get_evaluation_method(config: ExperimentsFile):
-    """Get appropriate evaluation method based on config."""
-    if config.evaluation.method == "llm_as_judge":
-        judge_config = config.evaluation.litellm.model_dump()
-        judge_client = LangfuseLLMClient(judge_config)
-
-        await judge_client.setup()
-
-        return LLMAsJudge(
-            llm_client=judge_client,
-        )
-    else:
-        raise ValueError(f"Unsupported evaluation method: {config.evaluation.method}")
-
-
-async def load_and_upload_dataset(config: ExperimentsFile) -> list[DatasetItem]:
-    """Load dataset and upload to Langfuse."""
-    _logger.info(f"Loading dataset: {config.dataset.name} from {config.dataset.source}")
-
-    item_model = get_item_model(config.dataset.type)
-    reader = get_reader(config.dataset.format)
-
-    loader = LangfuseLoader(
-        item_model=item_model,
-        reader=reader,
-        config={
-            "dataset_name": config.dataset.name,
-            "source_file": config.dataset.source
-        },
-        input_path="."
+def _load_rows(config: ExperimentsFile) -> list[Row]:
+    _logger.info(f"Loading dataset: {config.dataset.name} (provider={config.dataset.source.get('provider')})")
+    dataset = build_dataset(
+        name=config.dataset.name,
+        source=config.dataset.source,
+        input_template=config.dataset.input,
+        expected_output_template=config.dataset.expected_output,
+        limit=config.dataset.limit,
     )
-
-    dataset = loader.load()
-    _logger.info(f"Dataset uploaded to Langfuse: {len(dataset)} items in '{config.dataset.name}'")
-
-    return dataset
+    rows = list(dataset)
+    _logger.info(f"Fetched {len(rows)} rows")
+    return rows
 
 
-async def load_dataset_only(config: ExperimentsFile) -> list[DatasetItem]:
-    """Load and validate dataset from file without uploading to Langfuse."""
-    from src.datasets.loaders import DatasetLoader
-
-    _logger.info(f"Loading dataset (no upload): {config.dataset.name} from {config.dataset.source}")
-
-    item_model = get_item_model(config.dataset.type)
-    reader = get_reader(config.dataset.format)
-
-    loader = DatasetLoader(
-        item_model=item_model,
-        reader=reader,
-        config={
-            "dataset_name": config.dataset.name,
-            "source_file": config.dataset.source
-        },
-        input_path="."
-    )
-
-    dataset = loader.load()
-    _logger.info(f"Dataset loaded locally: {len(dataset)} items (not uploaded to Langfuse)")
-
-    return dataset
 
 
-def _dataset_item_key(
-    input_value: Any,
-    expected_output: Any,
-    metadata: dict[str, Any] | None,
-) -> str:
-    """Build a stable key used to match local items to Langfuse dataset items."""
-    def normalize_for_json_key(value: Any) -> Any:
-        if value is None or isinstance(value, (str, int, float, bool)):
-            return value
-        if isinstance(value, dict):
-            string_key_items = [(str(key), val) for key, val in value.items()]
-            return {
-                str(key): normalize_for_json_key(val)
-                for key, val in sorted(string_key_items)
-            }
-        if isinstance(value, (list, tuple)):
-            return [normalize_for_json_key(item) for item in value]
-        if isinstance(value, set):
-            sortable_items = [
-                (json.dumps(normalized_item, sort_keys=True), normalized_item)
-                for normalized_item in (normalize_for_json_key(item) for item in value)
-            ]
-            return [item for _, item in sorted(sortable_items, key=lambda sortable_item: sortable_item[0])]
-        return str(value)
-
-    return json.dumps(
-        {
-            "input": normalize_for_json_key(input_value),
-            "expected_output": normalize_for_json_key(expected_output),
-            "metadata": normalize_for_json_key(metadata or {}),
-        },
-        sort_keys=True,
-    )
-
-
-async def load_existing_langfuse_dataset(config: ExperimentsFile) -> list[DatasetItem]:
-    """
-    Load and validate dataset from file, then attach metadata from an existing Langfuse dataset.
-
-    This powers the --skip-upload flow by reusing already-uploaded Langfuse items instead of
-    uploading duplicates, while still validating the local source file.
-    """
-    dataset = await load_dataset_only(config)
-
-    if not dataset:
-        _logger.warning("Dataset is empty, skipping Langfuse dataset lookup")
-        return dataset
-
-    _logger.info(f"Loading existing Langfuse dataset: {config.dataset.name}")
-    langfuse_dataset = get_client().get_dataset(config.dataset.name)
-
-    langfuse_items_by_key: dict[str, deque[LangfuseDatasetItemLike]] = defaultdict(deque)
-    for remote_item in langfuse_dataset.items:
-        langfuse_items_by_key[
-            _dataset_item_key(
-                remote_item.input,
-                remote_item.expected_output,
-                remote_item.metadata,
-            )
-        ].append(remote_item)
-
-    missing_items: list[str] = []
-    for index, item in enumerate(dataset, start=1):
-        matching_items = langfuse_items_by_key.get(
-            _dataset_item_key(item.input(), item.expected_output(), item.meta())
-        )
-
-        if not matching_items:
-            missing_items.append(
-                f"row {index} ({str(item.input())[:MISSING_ITEM_PREVIEW_LENGTH]!r})"
-            )
-            continue
-
-        if len(matching_items) > 1:
-            _logger.warning(
-                "Multiple existing Langfuse items matched row %s in dataset '%s'; reusing one of them",
-                index,
-                config.dataset.name,
-            )
-
-        remote_item = matching_items.popleft()
-        item.metadata["lf_item_id"] = remote_item.id
-        item.metadata["lf_dataset_name"] = langfuse_dataset.name
-        item.metadata["lf_dataset_id"] = langfuse_dataset.id
-
-    if missing_items:
-        missing_preview = ", ".join(missing_items[:5])
-        if len(missing_items) > 5:
-            missing_preview += ", ..."
-
-        raise ValueError(
-            "Dataset validation succeeded, but some items were not found in the existing "
-            f"Langfuse dataset '{config.dataset.name}'. Missing matches: {missing_preview}. "
-            "Re-run without --skip-upload to upload the dataset again."
-        )
-
-    extra_remote_items_count = sum(len(items) for items in langfuse_items_by_key.values())
-    if extra_remote_items_count:
-        _logger.warning(
-            "Existing Langfuse dataset '%s' contains %s extra items that were not matched "
-            "to the local source file",
-            config.dataset.name,
-            extra_remote_items_count,
-        )
-
-    _logger.info(
-        "Reused %s existing Langfuse dataset items from '%s'",
-        len(dataset),
-        config.dataset.name,
-    )
-    return dataset
-
-
-async def run_experiments(config: ExperimentsFile, dataset: list[DatasetItem]) -> list[list[ExecutionResult]]:
-    """Run all experiments sequentially."""
-    _logger.info(f"Preparing {len(config.experiments)} experiments for execution")
-
-    all_results = []
+async def _run_experiments(
+    config: ExperimentsFile, rows: list[Row], fail_fast: bool = False
+) -> list[list[ExecutionResult]]:
+    _logger.info(f"Running {len(config.experiments)} experiments")
+    all_results: list[list[ExecutionResult]] = []
 
     for exp_config in config.experiments:
-        _logger.info(f"Configuring experiment: {exp_config.name} with model {exp_config.litellm.model}")
-
-        llm_config = exp_config.litellm.model_dump()
-
-        mcp_servers: list[MCPServerConfig] | None = None
-        if exp_config.mcp:
-            mcp_servers = [
-                {"server_name": mcp.name, "url": str(mcp.url)}
-                for mcp in exp_config.mcp
-            ]
-            _logger.info(f"  MCP servers configured: {len(mcp_servers)}")
-
-        lf_client = LangfuseLLMClient(
-            llm_config=llm_config,
-            mcp_servers=mcp_servers or []
+        _logger.info(f"Experiment '{exp_config.name}' with model {exp_config.litellm.model}")
+        mcp_servers: list[MCPServerConfig] = (
+            [{"server_name": m.name, "url": str(m.url)} for m in exp_config.mcp]
+            if exp_config.mcp
+            else []
         )
+        callbacks = [CallbackHandler()]
+        caller_cls = AgentCaller if mcp_servers else SimpleCaller
+        caller_kwargs: dict = {
+            "llm_config": exp_config.litellm.model_dump(),
+            "callbacks": callbacks,
+        }
+        if mcp_servers:
+            caller_kwargs["mcp_servers"] = mcp_servers
 
-        await lf_client.setup()
-
-        executor = LangfuseExecutor(
-            dataset=dataset,
-            llm_client=lf_client,
-            system_prompt=config.system_prompt,
-            experiment_name=exp_config.name,
-            experiment_description=f"Experiment: {exp_config.name} with model {exp_config.litellm.model}"
-        )
-
-        _logger.info(f"Executing experiment: {exp_config.name}")
-        results = await executor.execute()
-        all_results.append(results)
+        async with caller_cls(**caller_kwargs) as client:
+            executor = Executor(
+                dataset=rows,
+                llm_client=client,
+                system_prompt=config.system_prompt,
+                experiment_name=exp_config.name,
+                experiment_description=f"Experiment: {exp_config.name} with model {exp_config.litellm.model}",
+                fail_fast=fail_fast,
+                timeout_s=exp_config.timeout_s,
+            )
+            results = await executor.execute()
 
         errors = sum(1 for r in results if r.error)
-        if errors > 0:
+        if errors:
             _logger.warning(f"Experiment '{exp_config.name}' completed: {len(results)} items, {errors} errors")
         else:
-            _logger.info(f"Experiment '{exp_config.name}' completed successfully: {len(results)} items")
-
-    _logger.info("All experiments completed")
+            _logger.info(f"Experiment '{exp_config.name}' completed: {len(results)} items")
+        all_results.append(results)
 
     return all_results
 
 
-async def run_evaluations(config: ExperimentsFile, all_results: list[list[ExecutionResult]]) -> list[list[EvaluationResult]]:
-    """Run evaluations on all experiment results."""
-    _logger.info(f"Preparing evaluation for {len(all_results)} experiments")
+async def _run_evaluations(
+    config: ExperimentsFile, all_results: list[list[ExecutionResult]]
+) -> list[list[EvaluationResult]]:
+    _logger.info(f"Evaluating {len(all_results)} experiments with {config.evaluation.method}")
+    mode = evaluator_mode(config.evaluation.method)
+    common_kwargs: dict = dict(
+        method=config.evaluation.method,
+        llm_config=config.evaluation.litellm.model_dump(),
+        score_name=config.evaluation.score_name or "evaluation_score",
+        max_concurrency=config.evaluation.max_concurrency or 10,
+        callbacks=[CallbackHandler()],
+    )
+    common_kwargs["system_prompt"] = config.evaluation.system_prompt
+    common_kwargs["system_prompt_no_reference"] = config.evaluation.system_prompt_no_reference
+    if config.evaluation.timeout_s is not None:
+        common_kwargs["timeout_s"] = config.evaluation.timeout_s
+    if config.evaluation.method == "llm_as_verifier":
+        if config.evaluation.granularity is not None:
+            common_kwargs["granularity"] = config.evaluation.granularity
+        if config.evaluation.repeats is not None:
+            common_kwargs["repeats"] = config.evaluation.repeats
+        if config.evaluation.criteria:
+            common_kwargs["criteria"] = config.evaluation.criteria
+    elif config.evaluation.method == "llm_as_judge":
+        if config.evaluation.max_retries is not None:
+            common_kwargs["max_retries"] = config.evaluation.max_retries
+    all_evals: list[list[EvaluationResult]] = []
 
-    evaluation_method = await get_evaluation_method(config)
-    _logger.info(f"Configuring {config.evaluation.method} with model: {config.evaluation.litellm.model}")
+    if mode == "pointwise":
+        for exp_config, results in zip(config.experiments, all_results):
+            _logger.info(f"Evaluating experiment: {exp_config.name}")
+            evaluator = build_evaluator(results=results, **common_kwargs)
+            eval_results = await evaluator.evaluate()
+            _log_summary(exp_config.name, eval_results)
+            all_evals.append(eval_results)
+        return all_evals
 
-    all_eval_results = []
+    # group mode: bundle results across experiments by lf_item_id
+    _logger.info(f"Group evaluation across {len(config.experiments)} experiments")
+    groups = _group_by_item(config.experiments, all_results)
+    evaluator = build_evaluator(groups=groups, **common_kwargs)
+    flat_results = await evaluator.evaluate()
 
-    # Evaluate each experiment's results
-    for exp_config, results in zip(config.experiments, all_results):
-        _logger.info(f"Evaluating experiment: {exp_config.name}")
+    by_exp: dict[str, list[EvaluationResult]] = {exp.name: [] for exp in config.experiments}
+    for r in flat_results:
+        by_exp.setdefault(r.experiment_name or r.model_name, []).append(r)
+    for exp_config in config.experiments:
+        _log_summary(exp_config.name, by_exp.get(exp_config.name, []))
+        all_evals.append(by_exp.get(exp_config.name, []))
+    return all_evals
 
-        evaluator = LangfuseEvaluator(
-            results=results,
-            method=evaluation_method,
-            score_name=config.evaluation.score_name or "evaluation_score",
-            max_concurrency=config.evaluation.max_concurrency or 10
-        )
 
-        eval_results = await evaluator.evaluate()
-        all_eval_results.append(eval_results)
+def _group_by_item(
+    experiments, all_results: list[list[ExecutionResult]]
+) -> list[dict[str, ExecutionResult]]:
+    groups: dict[str, dict[str, ExecutionResult]] = {}
+    for exp_config, results in zip(experiments, all_results):
+        for r in results:
+            groups.setdefault(r.metadata["lf_item_id"], {})[exp_config.name] = r
+    return list(groups.values())
 
-        scored = sum(1 for r in eval_results if r.score is not None)
-        errors = sum(1 for r in eval_results if r.error is not None)
-        avg_score = sum(r.score for r in eval_results if r.score is not None) / scored if scored > 0 else 0
 
-        if errors > 0:
-            _logger.warning(f"Evaluation '{exp_config.name}' completed: {scored} scored (avg: {avg_score:.2f}), {errors} errors")
-        else:
-            _logger.info(f"Evaluation '{exp_config.name}' completed: {scored} scored (avg: {avg_score:.2f})")
-
-    _logger.info("All evaluations completed")
-
-    return all_eval_results
+def _log_summary(name: str, eval_results: list[EvaluationResult]) -> None:
+    scored = sum(1 for r in eval_results if r.score is not None)
+    errors = sum(1 for r in eval_results if r.error is not None)
+    if scored:
+        avg = sum(r.score for r in eval_results if r.score is not None) / scored
+        msg = f"'{name}': {scored} scored (avg: {avg:.2f})"
+    else:
+        msg = f"'{name}': 0 scored"
+    if errors:
+        _logger.warning(f"{msg}, {errors} errors")
+    else:
+        _logger.info(msg)
 
 
 @click.command()
-@click.option(
-    '--config', '-c',
-    required=True,
-    type=click.Path(exists=True),
-    help='Path to YAML configuration file'
-)
-@click.option(
-    '--skip-upload',
-    is_flag=True,
-    default=False,
-    help='Skip dataset upload (assumes dataset already exists in Langfuse)'
-)
-def main(config: str, skip_upload: bool):
-    """
-    Run the Open Arena CLI workflow from a YAML configuration file.
-
-    This script:
-    1. Loads and validates the configuration
-    2. Uploads the dataset to Langfuse (unless --skip-upload)
-    3. Runs all experiments sequentially
-    4. Evaluates all experiment results
-    5. Results and scores are automatically tracked in Langfuse
-
-    Example:
-        arena --config experiments.yaml
-        arena -c config.yaml --skip-upload
-        python -m src.main_cli -c config.yaml --skip-upload
-    """
+@click.option("--config", "-c", "config_path", required=True, type=click.Path(exists=True), help="Path to YAML configuration file")
+@click.option("--skip-upload", is_flag=True, default=False, help="Skip dataset upload (reuse existing Langfuse dataset)")
+@click.option("--fail-fast", is_flag=True, default=False, help="Re-raise on the first row failure instead of recording the error and continuing")
+@click.option("--debug", "-v", is_flag=True, default=False, help="Enable DEBUG-level logging")
+def main(config_path: str, skip_upload: bool, fail_fast: bool, debug: bool):
+    """Run the Open Arena CLI workflow from a YAML configuration file."""
+    if debug:
+        logging.getLogger().setLevel(logging.DEBUG)
     try:
-        _logger.info("Starting Open Arena CLI pipeline")
-
-        _logger.info(f"Loading configuration from: {config}")
+        _logger.info(f"Loading configuration from: {config_path}")
         try:
-            experiments_config = ExperimentsFile.from_yaml(config)
-            _logger.info(f"Configuration validated: {len(experiments_config.experiments)} experiments found")
+            config = ExperimentsFile.from_yaml(config_path)
         except ValidationError as e:
-            _logger.error(f"Configuration validation failed:")
+            _logger.error("Configuration validation failed:")
             for error in e.errors():
                 _logger.error(f"  {error['loc']}: {error['msg']}")
             sys.exit(1)
+        _logger.info(f"Validated: {len(config.experiments)} experiments")
 
         async def workflow():
-            if not skip_upload:
-                dataset = await load_and_upload_dataset(experiments_config)
+            rows = _load_rows(config)
+            if config.dataset.source.get("provider") == "langfuse":
+                _logger.info("Source is Langfuse; skipping upload (items already exist remotely)")
+            elif skip_upload:
+                rows = attach_existing_dataset(rows, config.dataset.name)
             else:
-                _logger.info("Skipping dataset upload (--skip-upload flag set)")
-                dataset = await load_existing_langfuse_dataset(experiments_config)
-
-            results = await run_experiments(experiments_config, dataset)
-
-            await run_evaluations(experiments_config, results)
+                rows = await upload_rows(rows, dataset_name=config.dataset.name, description=config.dataset.description or "")
+            results = await _run_experiments(config, rows, fail_fast=fail_fast)
+            await _run_evaluations(config, results)
+            get_client().flush()
 
         asyncio.run(workflow())
-
-        _logger.info("Execution completed successfully")
-        _logger.info("View results in Langfuse dashboard")
+        _logger.info("Execution completed. View results in Langfuse.")
         sys.exit(0)
 
     except FileNotFoundError as e:
