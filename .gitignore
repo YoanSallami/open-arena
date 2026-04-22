@@ -206,5 +206,9 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Claude Code local state
+# Coding agents local state
 .claude/
+.clinerules/
+.codex/
+.gemini/
+.github/skills/
