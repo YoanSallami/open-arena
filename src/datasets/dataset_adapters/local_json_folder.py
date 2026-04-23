@@ -1,10 +1,11 @@
-"""JSON-folder dataset adapter for the forge_gpt54 benchmark traces.
+"""JSON-folder dataset adapter for replaying terminal-bench trajectories.
 
-This adapter currently targets the ATIF-style trajectory folders under
+This adapter targets the ATIF-style trajectory folders under
 `resources/data/llm-as-a-verifier/data/terminal_trajs/forge_gpt54`.
 It assumes each task directory contains exactly 5 trials and applies a
-small output-cleanup heuristic to skip Forge scaffold/status messages when
-deriving the replay `output` field.
+small output-cleanup heuristic only when deriving the compact replay
+`output` field; the structured trajectory remains the primary evidence for
+verifier-style evaluation.
 """
 
 import json
@@ -149,11 +150,36 @@ class LocalJsonFolderDataset(Dataset):
 
 def _extract_task_prompt(payload: dict[str, Any]) -> str:
     steps = payload["trajectory"]["steps"]
+    task_name = str(payload.get("task_name") or "<unknown>")
     for step in steps:
-        if step.get("source") == "user" and step.get("message"):
-            return str(step["message"])
+        if step.get("source") != "user":
+            continue
+        message = str(step.get("message") or "")
+        if message and not (message.startswith("$") and len(message) < 5):
+            return message
 
-    raise ValueError(f"No user prompt found for trial {payload.get('trial_id', '<unknown>')}")
+    # Upstream terminal-bench falls back to the agent's first analysis when
+    # the original user task is missing from the trace.
+    parts: list[str] = []
+    for step in steps:
+        if step.get("source") != "agent":
+            continue
+        message = str(step.get("message") or "").strip()
+        if not message:
+            continue
+        parts.append(message)
+        if len(parts) >= 2:
+            break
+    if parts:
+        joined = "\n\n".join(parts)
+        return (
+            f"[Task: {task_name}]\n"
+            "The original task instruction was not captured. Below is the "
+            "agent's initial analysis:\n\n"
+            f"{joined}"
+        )
+
+    raise ValueError(f"No usable task prompt found for trial {payload.get('trial_id', '<unknown>')}")
 
 
 def _extract_output(steps: list[dict[str, Any]]) -> str:
