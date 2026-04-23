@@ -118,6 +118,30 @@ Langfuse is used to capture experiment execution and evaluation metadata so mode
 - evaluation results and judge scores
 - metadata for MCP-enabled executions
 
+## 🧑‍⚖️ Judge panel evaluator
+
+`method: judge_panel` runs a rubric-driven panel of small models against each
+output. Every panelist scores the same 0-10 rubric for each metric; when the
+panel agrees (per-metric score spread ≤ `1 - metric.threshold`), the mean is
+returned. When panelists disagree, the metric is escalated to a smarter model
+(`smart_litellm`) that re-scores it on the same rubric. Use it when:
+
+- scoring is naturally multi-dimensional (one run surfaces several rubric metrics)
+- rubric bands give clearer guidance than a 1-5 holistic scale
+- small models handle most cases and you want a budget-sensitive escalation
+
+**Scenarios** are declared inline under `evaluation.scenario` in `config.yaml`
+(schema: `ScenarioConfig` in `src/config/types.py`). Each declares
+`required_trace_fields` and one or more metrics with a 0-10 rubric that must
+cover the full range without gaps.
+
+**Trace fields** other than `actual_output` are resolved from
+`ExecutionResult.metadata`; populate them upstream (e.g. by passing through
+extra dataset columns).
+
+See the `judge_panel` block in `config.example.yaml` for a ready-to-copy
+scenario definition and the full evaluator configuration.
+
 ## ⚠️ Limitations
 
 - **Tracing is Langfuse-only**: experiment traces and evaluation scores are written to Langfuse regardless of which dataset source you use. A Langfuse instance (self-hosted or cloud) is therefore required.
@@ -137,7 +161,7 @@ open-arena/
 │   │   ├── base.py
 │   │   ├── dataset_adapters/        # one file per provider
 │   │   └── langfuse_upload.py
-│   ├── evaluation/                  # evaluators (llm_as_judge, llm_as_verifier)
+│   ├── evaluation/                  # evaluators (llm_as_judge, llm_as_verifier, judge_panel)
 │   ├── execution/                   # experiment executor
 │   ├── llms/                        # SimpleCaller + AgentCaller
 │   └── main_cli.py                  # `arena` entrypoint

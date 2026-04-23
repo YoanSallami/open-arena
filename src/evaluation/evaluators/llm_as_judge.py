@@ -60,6 +60,7 @@ class LLMAsJudgeEvaluator(PointwiseEvaluator):
         output: str,
         expected_output: str | None = None,
         trajectory: list[AgentStep] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> tuple[float | None, str | None, str | None]:
         payload_obj: dict = {"input": input, "output": output}
         if expected_output is None:

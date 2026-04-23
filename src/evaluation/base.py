@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import ClassVar, Literal
+from typing import Any, ClassVar, Literal
 
 from langfuse import get_client
 from tqdm.asyncio import tqdm as async_tqdm
@@ -85,6 +85,7 @@ class PointwiseEvaluator(Evaluator):
         output: str,
         expected_output: str | None = None,
         trajectory: list[AgentStep] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> tuple[float | None, str | None, str | None]:
         raise NotImplementedError
 
@@ -140,6 +141,7 @@ class PointwiseEvaluator(Evaluator):
                     output=result.output or "",
                     expected_output=result.expected_output or None,
                     trajectory=result.trajectory,
+                    metadata=dict(result.metadata),
                 )
                 if self.timeout_s is not None:
                     coro = asyncio.wait_for(coro, timeout=self.timeout_s)

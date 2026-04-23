@@ -283,7 +283,7 @@ experiments:
 # -------------------------------------------------------------------------
 # evaluation  (required)
 # -------------------------------------------------------------------------
-# One evaluator is run after all experiments complete. Two evaluators
+# One evaluator is run after all experiments complete. Three evaluators
 # ship today:
 #   - llm_as_judge    (pointwise) — scores each output independently
 #                                   against expected_output (or without
@@ -310,8 +310,17 @@ experiments:
 #                                   Langfuse score is the mean reward
 #                                   over all pairs it appears in,
 #                                   normalised to [0, 1].
+#   - judge_panel     (pointwise) — rubric-driven panel. An inline
+#                                   `scenario` block declares 0-10 rubric
+#                                   bands per metric plus required_trace_fields.
+#                                   Every panelist scores each metric in
+#                                   parallel; when the per-metric spread
+#                                   exceeds (1 - threshold) the metric is
+#                                   escalated to a smarter model. See the
+#                                   judge_panel block further down for a
+#                                   ready-to-copy scenario.
 evaluation:
-  # "llm_as_judge" | "llm_as_verifier"
+  # "llm_as_judge" | "llm_as_verifier" | "judge_panel"
   method: "llm_as_judge"
 
   # LiteLLM config for the judge model. Same extras mechanism as
@@ -466,3 +475,77 @@ evaluation:
   #       sentence structure, organisation, absence of jargon the
   #       reader would not understand. Ignore correctness here — only
   #       judge presentation.
+
+  # -------------------------------------------------------------------------
+  # Judge-panel evaluator (drop in if you switch `method` to "judge_panel")
+  # -------------------------------------------------------------------------
+  # `judge_panel` (pointwise) scores every output against an inline rubric
+  # scenario (see the `scenario:` block below). Each rubric metric is scored
+  # on a 0-10 scale by every panelist in parallel; the panel's spread is compared to
+  # `(1 - metric.threshold)`. If at least two panelists agree within that
+  # tolerance we return the mean (normalised to [0, 1]). When the panel
+  # disagrees — or when fewer than two panelists survived — `smart_litellm`
+  # re-scores that metric and its value wins. `smart_litellm` is mandatory:
+  # every metric has a guaranteed escalation path.
+  #
+  # Unlike `llm_as_judge`/`llm_as_verifier`, this evaluator does NOT use
+  # the top-level `litellm` / `system_prompt` / `system_prompt_no_reference`
+  # fields (they stay on the schema for consistency; leave them as any
+  # valid stub values). Prompts are built from the scenario's rubric.
+  #
+  # method: "judge_panel"
+  # litellm:
+  #   model: "unused"                  # required by schema; judge_panel ignores it
+  # system_prompt: "unused"            # required by schema; judge_panel ignores it
+  # system_prompt_no_reference: "unused"  # required by schema; judge_panel ignores it
+  #
+  # score_name: "date_range_compliance"
+  # max_concurrency: 5
+  # # timeout_s: 60
+  #
+  # # Inline scenario (rubric + required_trace_fields + threshold). Any
+  # # required_trace_field other than `actual_output` is resolved from
+  # # `ExecutionResult.metadata` on the dataset row — populate those upstream
+  # # via Jinja2 templates or dataset metadata passthrough.
+  # scenario:
+  #   id: date-range-compliance
+  #   name: Date range compliance
+  #   description: >
+  #     Checks whether the generated report respects the user-provided start
+  #     and end date constraints for the research run.
+  #   required_trace_fields:
+  #     - start_date
+  #     - end_date
+  #     - actual_output
+  #   scenario_metrics:
+  #     - name: respects_date_range
+  #       criteria: >
+  #         Evaluate whether the report focuses on developments that fall
+  #         within [start_date, end_date]. Penalize clearly out-of-range items.
+  #       rubric:
+  #         - score_range: [0, 2]
+  #           expected_outcome: Substantially violates the requested window.
+  #         - score_range: [3, 5]
+  #           expected_outcome: At least one meaningful out-of-range item.
+  #         - score_range: [6, 8]
+  #           expected_outcome: Mostly respects the window, minor drift.
+  #         - score_range: [9, 10]
+  #           expected_outcome: Fully respects the requested window.
+  #       threshold: 0.85
+  #
+  # # Panelists (≥ 2). Each config follows the same LiteLLM extras mechanism
+  # # as experiments (reasoning_effort, seed, thinking, ...).
+  # panelists:
+  #   - model: "gpt-4o-mini"
+  #     temperature: 0.0
+  #   - model: "mistral-small-latest"
+  #     temperature: 0.0
+  #
+  # # Smart judge used to resolve panel disagreement or insufficient survivors.
+  # # Required when method is "judge_panel".
+  # smart_litellm:
+  #   model: "gpt-4o"
+  #   temperature: 0.0
+  #
+  # # Structured-output retry budget (shared across panelists and smart).
+  # max_retries: 3

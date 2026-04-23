@@ -1,5 +1,6 @@
 from src.evaluation.base import Evaluator, GroupEvaluator, PointwiseEvaluator
 from src.evaluation.evaluators import (
+    JudgePanelEvaluator,
     LLMAsJudgeEvaluator,
     LLMAsVerifierEvaluator,
     build_evaluator,
@@ -11,6 +12,7 @@ __all__ = [
     "Evaluator",
     "PointwiseEvaluator",
     "GroupEvaluator",
+    "JudgePanelEvaluator",
     "LLMAsJudgeEvaluator",
     "LLMAsVerifierEvaluator",
     "build_evaluator",

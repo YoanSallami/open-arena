@@ -92,25 +92,32 @@ async def _run_evaluations(
     mode = evaluator_mode(config.evaluation.method)
     common_kwargs: dict = dict(
         method=config.evaluation.method,
-        llm_config=config.evaluation.litellm.model_dump(),
         score_name=config.evaluation.score_name or "evaluation_score",
         max_concurrency=config.evaluation.max_concurrency or 10,
         callbacks=[CallbackHandler()],
     )
-    common_kwargs["system_prompt"] = config.evaluation.system_prompt
-    common_kwargs["system_prompt_no_reference"] = config.evaluation.system_prompt_no_reference
     if config.evaluation.timeout_s is not None:
         common_kwargs["timeout_s"] = config.evaluation.timeout_s
-    if config.evaluation.method == "llm_as_verifier":
-        if config.evaluation.granularity is not None:
-            common_kwargs["granularity"] = config.evaluation.granularity
-        if config.evaluation.repeats is not None:
-            common_kwargs["repeats"] = config.evaluation.repeats
-        if config.evaluation.criteria:
-            common_kwargs["criteria"] = config.evaluation.criteria
-    elif config.evaluation.method == "llm_as_judge":
+    if config.evaluation.method == "judge_panel":
+        common_kwargs["scenario"] = config.evaluation.scenario
+        common_kwargs["panelist_llm_configs"] = [p.model_dump() for p in config.evaluation.panelists]
+        common_kwargs["smart_llm_config"] = config.evaluation.smart_litellm.model_dump()
         if config.evaluation.max_retries is not None:
             common_kwargs["max_retries"] = config.evaluation.max_retries
+    else:
+        common_kwargs["llm_config"] = config.evaluation.litellm.model_dump()
+        common_kwargs["system_prompt"] = config.evaluation.system_prompt
+        common_kwargs["system_prompt_no_reference"] = config.evaluation.system_prompt_no_reference
+        if config.evaluation.method == "llm_as_verifier":
+            if config.evaluation.granularity is not None:
+                common_kwargs["granularity"] = config.evaluation.granularity
+            if config.evaluation.repeats is not None:
+                common_kwargs["repeats"] = config.evaluation.repeats
+            if config.evaluation.criteria:
+                common_kwargs["criteria"] = config.evaluation.criteria
+        elif config.evaluation.method == "llm_as_judge":
+            if config.evaluation.max_retries is not None:
+                common_kwargs["max_retries"] = config.evaluation.max_retries
     all_evals: list[list[EvaluationResult]] = []
 
     if mode == "pointwise":
