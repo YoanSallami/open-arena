@@ -2,6 +2,7 @@ import asyncio
 import logging
 import sys
 import warnings
+from typing import Any
 
 import click
 from dotenv import load_dotenv
@@ -15,7 +16,7 @@ from src.datasets.langfuse_upload import attach_existing_dataset, upload_rows
 from src.evaluation import EvaluationResult, build_evaluator
 from src.evaluation.evaluators import evaluator_mode
 from src.execution import ExecutionResult, Executor
-from src.llms import AgentCaller, SimpleCaller
+from src.llms import AgentCaller, ReplayCaller, SimpleCaller
 from src.llms.types import MCPServerConfig
 
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
@@ -39,6 +40,33 @@ def _load_rows(config: ExperimentsFile) -> list[Row]:
     return rows
 
 
+def _build_replay_lookup(rows: list[Row], trial_index: int) -> dict[str, tuple[str, list[dict[str, Any]]]]:
+    trial_number = trial_index + 1
+    output_key = f"trial_{trial_number}_output"
+    trajectory_key = f"trial_{trial_number}_trajectory"
+    lookup: dict[str, tuple[str, list[dict[str, Any]]]] = {}
+
+    for input_text, _expected, metadata in rows:
+        if input_text in lookup:
+            raise ValueError(
+                "Replay lookup requires unique rendered inputs, but found a duplicate: "
+                f"{input_text[:120]!r}"
+            )
+        if output_key not in metadata or trajectory_key not in metadata:
+            raise ValueError(
+                f"Replay trial index {trial_index} missing expected metadata keys "
+                f"{output_key!r} / {trajectory_key!r}"
+            )
+
+        trajectory = metadata[trajectory_key]
+        if not isinstance(trajectory, list):
+            raise ValueError(f"Expected {trajectory_key!r} to be a list, got {type(trajectory).__name__}")
+
+        lookup[input_text] = (str(metadata[output_key] or ""), trajectory)
+
+    return lookup
+
+
 
 
 async def _run_experiments(
@@ -49,19 +77,29 @@ async def _run_experiments(
 
     for exp_config in config.experiments:
         _logger.info(f"Experiment '{exp_config.name}' with model {exp_config.litellm.model}")
-        mcp_servers: list[MCPServerConfig] = (
-            [{"server_name": m.name, "url": str(m.url)} for m in exp_config.mcp]
-            if exp_config.mcp
-            else []
-        )
         callbacks = [CallbackHandler()]
-        caller_cls = AgentCaller if mcp_servers else SimpleCaller
-        caller_kwargs: dict = {
-            "llm_config": exp_config.litellm.model_dump(),
-            "callbacks": callbacks,
-        }
-        if mcp_servers:
-            caller_kwargs["mcp_servers"] = mcp_servers
+        if exp_config.replay_trial_index is not None:
+            if exp_config.mcp:
+                raise ValueError("Replay mode does not support MCP servers")
+            caller_cls = ReplayCaller
+            caller_kwargs: dict[str, Any] = {
+                "llm_config": exp_config.litellm.model_dump(),
+                "lookup": _build_replay_lookup(rows, exp_config.replay_trial_index),
+                "callbacks": callbacks,
+            }
+        else:
+            mcp_servers: list[MCPServerConfig] = (
+                [{"server_name": m.name, "url": str(m.url)} for m in exp_config.mcp]
+                if exp_config.mcp
+                else []
+            )
+            caller_cls = AgentCaller if mcp_servers else SimpleCaller
+            caller_kwargs = {
+                "llm_config": exp_config.litellm.model_dump(),
+                "callbacks": callbacks,
+            }
+            if mcp_servers:
+                caller_kwargs["mcp_servers"] = mcp_servers
 
         async with caller_cls(**caller_kwargs) as client:
             executor = Executor(

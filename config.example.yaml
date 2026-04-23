@@ -67,11 +67,11 @@ dataset:
     D) {{ choices[3] }}
     Answer with the letter only.
 
-  # --- expected_output: Jinja2 template rendered per row (required). -------
+  # --- expected_output: Jinja2 template rendered per row. ------------------
   # Produces the ground-truth string used by reference-based evaluators
-  # (`llm_as_judge`, `llm_as_verifier`). Leave empty ("") in the rendered
-  # output to signal "no ground truth" — no-reference judge prompts will
-  # be used automatically.
+  # (`llm_as_judge`, `llm_as_verifier`). Set this to the empty string ("")
+  # to signal "no ground truth" — no-reference prompts will be used
+  # automatically.
   expected_output: "{{ ['A', 'B', 'C', 'D'][answer] }}"
 
   # Optional cap on the number of rows processed (useful for smoke tests).
