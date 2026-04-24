@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the forge_gpt54 verifier benchmark and report pairwise accuracy."""
+"""Run the forge_gpt54 benchmark and report pairwise accuracy."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ _logger = logging.getLogger(__name__)
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run the replay-backed forge_gpt54 verifier benchmark and report "
+            "Run the replay-backed forge_gpt54 benchmark and report "
             "pairwise accuracy over reward-discriminating trial pairs."
         )
     )

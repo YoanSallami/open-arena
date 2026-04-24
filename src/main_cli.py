@@ -14,7 +14,7 @@ from src.config.types import ExperimentsFile
 from src.datasets import Row, build_dataset
 from src.datasets.langfuse_upload import attach_existing_dataset, upload_rows
 from src.evaluation import EvaluationResult, build_evaluator
-from src.evaluation.evaluators import evaluator_mode
+from src.evaluation.evaluators import evaluator_init_params, evaluator_mode
 from src.execution import ExecutionResult, Executor
 from src.llms import AgentCaller, ReplayCaller, SimpleCaller
 from src.llms.types import MCPServerConfig
@@ -128,27 +128,30 @@ async def _run_evaluations(
 ) -> list[list[EvaluationResult]]:
     _logger.info(f"Evaluating {len(all_results)} experiments with {config.evaluation.method}")
     mode = evaluator_mode(config.evaluation.method)
-    common_kwargs: dict = dict(
-        method=config.evaluation.method,
-        llm_config=config.evaluation.litellm.model_dump(),
-        score_name=config.evaluation.score_name or "evaluation_score",
-        max_concurrency=config.evaluation.max_concurrency or 10,
-        callbacks=[CallbackHandler()],
-    )
-    common_kwargs["system_prompt"] = config.evaluation.system_prompt
-    common_kwargs["system_prompt_no_reference"] = config.evaluation.system_prompt_no_reference
-    if config.evaluation.timeout_s is not None:
-        common_kwargs["timeout_s"] = config.evaluation.timeout_s
-    if config.evaluation.method == "llm_as_verifier":
-        if config.evaluation.granularity is not None:
-            common_kwargs["granularity"] = config.evaluation.granularity
-        if config.evaluation.repeats is not None:
-            common_kwargs["repeats"] = config.evaluation.repeats
-        if config.evaluation.criteria:
-            common_kwargs["criteria"] = config.evaluation.criteria
-    elif config.evaluation.method == "llm_as_judge":
-        if config.evaluation.max_retries is not None:
-            common_kwargs["max_retries"] = config.evaluation.max_retries
+
+    # Runner-managed kwargs (not sourced from EvaluationConfig fields).
+    common_kwargs: dict[str, Any] = {
+        "method": config.evaluation.method,
+        "llm_config": config.evaluation.litellm.model_dump(),
+        "callbacks": [CallbackHandler()],
+    }
+
+    # Thread every declared EvaluationConfig field whose name matches a
+    # parameter on the evaluator's __init__. This keeps the dispatcher
+    # evaluator-agnostic: registering a new evaluator (e.g. a judge panel) and
+    # declaring any extra fields it needs on EvaluationConfig is enough to
+    # wire it in — no edits to this function required.
+    accepted_params = evaluator_init_params(config.evaluation.method)
+    for field_name in config.evaluation.model_fields:
+        if field_name in ("method", "litellm"):
+            continue
+        if field_name not in accepted_params:
+            continue
+        value = getattr(config.evaluation, field_name)
+        if value is None:
+            continue
+        common_kwargs[field_name] = value
+
     all_evals: list[list[EvaluationResult]] = []
 
     if mode == "pointwise":

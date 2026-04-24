@@ -1,16 +1,22 @@
 from typing import Any
 
-from src.llms.base import AgentStep, LLMCaller, Msg, ToolInvocation
+from langchain_core.callbacks import BaseCallbackHandler
+
+from src.llms.base import AgentStep, LLMCaller, Msg
 
 
 class ReplayCaller(LLMCaller):
-    """Return pre-recorded outputs and trajectories instead of calling an LLM."""
+    """Return pre-recorded outputs instead of calling an LLM.
+
+    The lookup is keyed by the rendered user input and yields the
+    pre-recorded `(output, trajectory)` to return for that input.
+    """
 
     def __init__(
         self,
         llm_config: dict[str, Any],
         lookup: dict[str, tuple[str, list[dict[str, Any]]]],
-        callbacks=None,
+        callbacks: list[BaseCallbackHandler] | None = None,
     ):
         super().__init__(llm_config, callbacks=callbacks)
         self.lookup = dict(lookup)
@@ -27,8 +33,10 @@ class ReplayCaller(LLMCaller):
         if user_text not in self.lookup:
             raise ValueError(f"No replay entry found for rendered input: {user_text[:120]!r}")
 
-        output, trajectory = self.lookup[user_text]
-        return output, [_deserialize_agent_step(step) for step in trajectory]
+        output, _trajectory = self.lookup[user_text]
+        # Benchmark trajectories are baked into `output` as formatted text, so
+        # we do not surface a structured trajectory here.
+        return output, None
 
 
 def _last_user_message(messages: list[Msg]) -> str:
@@ -36,20 +44,3 @@ def _last_user_message(messages: list[Msg]) -> str:
         if message.get("role") == "user":
             return str(message.get("content") or "")
     raise ValueError("ReplayCaller expected at least one user message")
-
-
-def _deserialize_agent_step(step: dict[str, Any]) -> AgentStep:
-    tool_calls = [
-        ToolInvocation(
-            name=str(call.get("name") or ""),
-            args=dict(call.get("args") or {}),
-            output=str(call.get("output") or ""),
-        )
-        for call in step.get("tool_calls", [])
-    ]
-    reasoning = step.get("reasoning")
-    return AgentStep(
-        thought=str(step.get("thought") or ""),
-        reasoning=str(reasoning) if reasoning is not None else None,
-        tool_calls=tool_calls,
-    )

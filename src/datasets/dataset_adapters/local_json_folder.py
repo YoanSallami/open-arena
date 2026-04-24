@@ -1,13 +1,3 @@
-"""JSON-folder dataset adapter for replaying terminal-bench trajectories.
-
-This adapter targets the ATIF-style trajectory folders under
-`resources/data/llm-as-a-verifier/data/terminal_trajs/forge_gpt54`.
-It assumes each task directory contains exactly 5 trials and applies a
-small output-cleanup heuristic only when deriving the compact replay
-`output` field; the structured trajectory remains the primary evidence for
-verifier-style evaluation.
-"""
-
 import json
 from collections.abc import Iterator
 from pathlib import Path
@@ -15,17 +5,18 @@ from typing import Any
 
 from src.datasets.base import Dataset
 
-_SKIP_OUTPUT_PREFIXES = (
-    "Initialize ",
-    "Finished ",
-    "Skill ",
-    "EXPLORER [",
-)
 _EXPECTED_TRIAL_COUNT = 5
+_MAX_TRACE_AGENT_STEPS = 12
 
 
 class LocalJsonFolderDataset(Dataset):
-    """Load one forge_gpt54 task folder into one dataset row."""
+    """Load one task folder of pre-recorded agent trials into one dataset row.
+
+    Expects each task directory to contain one `trials_metadata.json` plus
+    exactly `_EXPECTED_TRIAL_COUNT` `*_trajectory.json` files. Yields one row
+    per task with the task prompt, per-trial formatted trace strings, rewards,
+    and trial IDs, suitable for replay-based benchmarking.
+    """
 
     def __init__(
         self,
@@ -115,12 +106,14 @@ class LocalJsonFolderDataset(Dataset):
                     f"trajectory={payload['reward']!r} metadata={meta['reward']!r}"
                 )
 
-            steps = payload["trajectory"]["steps"]
             trials.append({
                 "trial_id": trial_id,
                 "reward": reward,
-                "output": _extract_output(steps),
-                "trajectory": _serialize_trajectory(steps),
+                "output": _format_trace(payload["trajectory"]),
+                # Keep replay execution lightweight: the benchmark prompt is
+                # based on the formatted trace text, so we do not need to
+                # ship the bulky structured trajectory into evaluator calls.
+                "trajectory": [],
             })
 
         trials.sort(key=lambda trial: trial["trial_id"])
@@ -182,77 +175,49 @@ def _extract_task_prompt(payload: dict[str, Any]) -> str:
     raise ValueError(f"No usable task prompt found for trial {payload.get('trial_id', '<unknown>')}")
 
 
-def _extract_output(steps: list[dict[str, Any]]) -> str:
-    agent_steps = [step for step in steps if step.get("source") == "agent"]
+def _format_trace(trajectory: dict[str, Any] | None) -> str:
+    """Render the upstream terminal-bench trace text for one trial."""
+    if not trajectory:
+        return "(no trajectory data)"
 
-    for step in reversed(agent_steps):
-        if step.get("tool_calls"):
-            continue
-        message = _normalize_output_message(str(step.get("message") or ""))
-        if message:
-            return message
+    parts: list[str] = []
+    agent_steps = [
+        step
+        for step in trajectory.get("steps", [])
+        if step.get("source") == "agent"
+    ]
+    if len(agent_steps) > _MAX_TRACE_AGENT_STEPS:
+        parts.append(
+            f"[Trace truncated to final {_MAX_TRACE_AGENT_STEPS} agent steps]"
+        )
 
-    for step in reversed(agent_steps):
-        message = str(step.get("message") or "").strip()
-        if message:
-            return message
-
-    return ""
-
-
-def _normalize_output_message(message: str) -> str:
-    stripped = message.strip()
-    if not stripped:
-        return ""
-
-    if stripped.startswith(_SKIP_OUTPUT_PREFIXES):
-        return ""
-
-    if stripped.startswith("Update Todos"):
-        remainder = stripped.removeprefix("Update Todos").strip()
-        if not remainder:
-            return ""
-        lines = [line.rstrip() for line in remainder.splitlines()]
-        while lines and lines[0].lstrip().startswith("["):
-            lines.pop(0)
-        return "\n".join(lines).strip()
-
-    return stripped
-
-
-def _serialize_trajectory(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    trajectory: list[dict[str, Any]] = []
-    for step in steps:
-        if step.get("source") != "agent":
+    for step in agent_steps[-_MAX_TRACE_AGENT_STEPS:]:
+        source = step.get("source", "")
+        message = str(step.get("message") or "")
+        step_id = step.get("step_id", "?")
+        if source != "agent":
             continue
 
-        results = step.get("observation", {}).get("results", [])
-        raw_calls = step.get("tool_calls", [])
-        if results and len(results) != len(raw_calls):
-            raise ValueError(
-                "Expected observation.results to align with tool_calls for "
-                f"agent step {step.get('step_id', '<unknown>')}, but found "
-                f"{len(raw_calls)} tool calls and {len(results)} results"
-            )
-        tool_calls = []
-        for index, call in enumerate(raw_calls):
-            args = call.get("arguments")
-            if not isinstance(args, dict):
-                args = {} if args is None else {"value": args}
+        parts.append(f"--- Agent Step {step_id} ---")
+        if message:
+            parts.append(message)
 
-            output = ""
-            if index < len(results) and isinstance(results[index], dict):
-                output = str(results[index].get("content") or "")
+        for tool_call in step.get("tool_calls", []):
+            arguments = tool_call.get("arguments")
+            if not isinstance(arguments, dict):
+                arguments = {}
+            keystrokes = str(arguments.get("keystrokes") or "").rstrip()
+            if keystrokes:
+                parts.append(f"[Command] {keystrokes}")
 
-            tool_calls.append({
-                "name": str(call.get("function_name") or ""),
-                "args": args,
-                "output": output,
-            })
+        observation = step.get("observation") or {}
+        for result in observation.get("results", []):
+            if not isinstance(result, dict):
+                continue
+            content = str(result.get("content") or "")
+            if content:
+                parts.append(f"[Output]\n{content}")
 
-        trajectory.append({
-            "thought": str(step.get("message") or ""),
-            "reasoning": None,
-            "tool_calls": tool_calls,
-        })
-    return trajectory
+        parts.append("")
+
+    return "\n".join(parts) if parts else "(no trajectory data)"
