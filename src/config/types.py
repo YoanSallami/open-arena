@@ -17,7 +17,13 @@ class DatasetConfig(BaseModel):
         description="Provider-specific source config. Must contain `provider` (e.g. 'local', 'huggingface').",
     )
     input: str = Field(..., min_length=1, description="Jinja2 template rendered per row to produce the user input.")
-    expected_output: str = Field(..., min_length=1, description="Jinja2 template rendered per row to produce the ground truth.")
+    expected_output: str = Field(
+        ...,
+        description=(
+            "Jinja2 template rendered per row to produce the ground truth. "
+            "May be an empty string to force no-reference evaluation mode."
+        ),
+    )
     limit: int | None = Field(default=None, ge=1, description="Optional cap on number of rows.")
     description: str | None = Field(default=None, description="Optional human-readable description.")
 
@@ -46,6 +52,15 @@ class ExperimentConfig(BaseModel):
     name: str = Field(..., min_length=1)
     litellm: LiteLLMConfig = Field(...)
     mcp: list[MCPServer] | None = Field(default=None)
+    replay_trial_index: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "If set, run this experiment in replay mode using the dataset row's "
+            "`trial_{k}_output` and `trial_{k}_trajectory` fields instead of "
+            "calling a live LLM."
+        ),
+    )
     timeout_s: float | None = Field(
         default=None,
         gt=0,
