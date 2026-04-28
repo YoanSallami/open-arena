@@ -140,9 +140,23 @@ class LLMAsVerifierEvaluator(GroupEvaluator):
         # `repeats >= 2` for variance reduction.
         match_specs = list(itertools.combinations(models, 2))
 
+        semaphore = asyncio.Semaphore(max(1, self.max_concurrency))
+
+        async def _verify_pair_limited(a: str, b: str) -> tuple[tuple[float, float] | None, str | None]:
+            async with semaphore:
+                return await self._verify_pair(
+                    input,
+                    a,
+                    outputs[a],
+                    b,
+                    outputs[b],
+                    expected_output,
+                    (trajectories or {}).get(a),
+                    (trajectories or {}).get(b),
+                )
+
         results = await asyncio.gather(*[
-            self._verify_pair(input, a, outputs[a], b, outputs[b], expected_output,
-                              (trajectories or {}).get(a), (trajectories or {}).get(b))
+            _verify_pair_limited(a, b)
             for a, b in match_specs
         ])
 
