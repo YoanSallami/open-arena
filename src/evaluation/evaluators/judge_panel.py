@@ -148,47 +148,40 @@ class JudgePanelEvaluator(PointwiseEvaluator):
         successes = [r for r in panelist_results if r.score is not None]
         failures = [r for r in panelist_results if r.error is not None]
 
-        if not successes:
+        agreement_tolerance = 1.0 - metric.threshold
+        if successes:
+            scores = [r.score for r in successes]
+            # Consensus requires at least two surviving panelists within tolerance.
+            # A single survivor is not a consensus — route to the smart judge.
+            spread = max(scores) - min(scores) if len(successes) >= 2 else None
+            if spread is not None and spread <= agreement_tolerance:
+                consensus = sum(scores) / len(scores)
+                source = "panel_partial" if failures else "panel"
+                return _MetricOutcome(
+                    name=metric.name,
+                    score=consensus,
+                    threshold=metric.threshold,
+                    passed=consensus >= metric.threshold,
+                    source=source,
+                    reason=self._render_panel_reason(
+                        successes, failures, spread=spread, consensus=consensus,
+                    ),
+                    error=None,
+                )
+            disagreement = self._describe_disagreement(
+                spread=spread,
+                agreement_tolerance=agreement_tolerance,
+                successes=successes,
+                total_panelists=len(self._panelists),
+            )
+        else:
             error_summary = "; ".join(
                 f"p{r.panelist_index}: {r.error}" for r in failures
             )
-            return _MetricOutcome(
-                name=metric.name,
-                score=None,
-                threshold=metric.threshold,
-                passed=None,
-                source="error",
-                reason=f"all panelists failed ({error_summary})",
-                error=f"metric '{metric.name}': all panelists failed",
+            disagreement = (
+                f"all panelists failed ({error_summary})"
+                if error_summary else "all panelists failed"
             )
-
-        scores = [r.score for r in successes]
-        agreement_tolerance = 1.0 - metric.threshold
-        # Consensus requires at least two surviving panelists within tolerance.
-        # A single survivor is not a consensus — route to the smart judge.
-        spread = max(scores) - min(scores) if len(successes) >= 2 else None
-        if spread is not None and spread <= agreement_tolerance:
-            consensus = sum(scores) / len(scores)
-            source = "panel_partial" if failures else "panel"
-            return _MetricOutcome(
-                name=metric.name,
-                score=consensus,
-                threshold=metric.threshold,
-                passed=consensus >= metric.threshold,
-                source=source,
-                reason=self._render_panel_reason(
-                    successes, failures, spread=spread, consensus=consensus,
-                ),
-                error=None,
-            )
-
-        disagreement = self._describe_disagreement(
-            spread=spread,
-            agreement_tolerance=agreement_tolerance,
-            successes=successes,
-            total_panelists=len(self._panelists),
-        )
-
         smart_result = await self._invoke_smart(messages)
         if smart_result.score is None:
             return _MetricOutcome(
