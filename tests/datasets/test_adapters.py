@@ -28,6 +28,7 @@ from src.datasets.dataset_adapters import _ADAPTERS
 def test_every_documented_provider_is_registered():
     expected = {
         "local",
+        "local_json_folder",
         "huggingface",
         "braintrust",
         "langfuse",

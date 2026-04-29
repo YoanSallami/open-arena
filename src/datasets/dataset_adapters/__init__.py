@@ -6,6 +6,7 @@ from src.datasets.dataset_adapters.huggingface import HuggingFaceDataset
 from src.datasets.dataset_adapters.langfuse import LangfuseDataset
 from src.datasets.dataset_adapters.langsmith import LangSmithDataset
 from src.datasets.dataset_adapters.local import LocalDataset
+from src.datasets.dataset_adapters.local_json_folder import LocalJsonFolderDataset
 from src.datasets.dataset_adapters.mlflow import MLflowDataset
 from src.datasets.dataset_adapters.opik import OpikDataset
 from src.datasets.dataset_adapters.phoenix import PhoenixDataset
@@ -13,6 +14,7 @@ from src.datasets.dataset_adapters.weave import WeaveDataset
 
 _ADAPTERS: dict[str, type[Dataset]] = {
     "local": LocalDataset,
+    "local_json_folder": LocalJsonFolderDataset,
     "huggingface": HuggingFaceDataset,
     "braintrust": BraintrustDataset,
     "langfuse": LangfuseDataset,
@@ -55,6 +57,7 @@ __all__ = [
     "LangSmithDataset",
     "LangfuseDataset",
     "LocalDataset",
+    "LocalJsonFolderDataset",
     "MLflowDataset",
     "OpikDataset",
     "PhoenixDataset",
