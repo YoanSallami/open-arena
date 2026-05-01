@@ -72,17 +72,25 @@ class HuggingFaceDataset(Dataset):
         revision=None,
         streaming=True,
         input_data_model=None,
+        input_schema=None,
         input_template=None,
         output_data_model=None,
+        output_schema=None,
         output_template=None,
         batch_size=1,
         limit: int = None,
         **kwargs,
     ):
+        if input_data_model is None and input_schema is None:
+            input_data_model = synalinks.ChatMessages
+        if output_data_model is None and output_schema is None:
+            output_data_model = synalinks.ChatMessage
         super().__init__(
-            input_data_model=input_data_model or synalinks.ChatMessages,
+            input_data_model=input_data_model,
+            input_schema=input_schema,
             input_template=input_template,
-            output_data_model=output_data_model or synalinks.ChatMessage,
+            output_data_model=output_data_model,
+            output_schema=output_schema,
             output_template=output_template,
             batch_size=batch_size,
             limit=limit,
@@ -121,12 +129,8 @@ class HuggingFaceDataset(Dataset):
             if self.limit is not None and seen >= self.limit:
                 break
             seen += 1
-            x = self.input_data_model.model_validate_json(
-                self._input_tmpl.render(**row)
-            )
-            y = self.output_data_model.model_validate_json(
-                self._output_tmpl.render(**row)
-            )
+            x = self._make_input(self._input_tmpl.render(**row))
+            y = self._make_target(self._output_tmpl.render(**row))
             x_buf.append(x)
             y_buf.append(y)
             if len(x_buf) >= self.batch_size:

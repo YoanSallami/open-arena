@@ -26,14 +26,26 @@ from src.rewards import get as get_reward
 async def _evaluate(model_id: str, dataset, generator_kwargs: dict, reward) -> dict:
     language_model = synalinks.LanguageModel(model=model_id)
 
-    inputs = synalinks.Input(data_model=synalinks.ChatMessages)
-    # `return_inputs=True` concatenates the input `messages` onto the
-    # output so judge-style rewards (lm_as_judge, deep_eval, RLM, …) see
-    # the original prompt alongside the prediction. Without this they
-    # only get the assistant's reply and can't reason about the task.
-    # Caller can override by setting `return_inputs:` in the dataset's
-    # `generator:` kwargs.
-    cot_kwargs = {"return_inputs": True, **generator_kwargs}
+    # Build the program input from the dataset's schema or data_model.
+    # `input_schema:` (raw JSON Schema in YAML) takes precedence; otherwise
+    # fall back to the dataset's class (defaults to `synalinks.ChatMessages`).
+    if dataset.input_schema is not None:
+        inputs = synalinks.Input(schema=dataset.input_schema)
+    else:
+        inputs = synalinks.Input(data_model=dataset.input_data_model)
+
+    # `return_inputs:` is per-dataset (lives in the dataset's `generator:`
+    # block). When True, ChainOfThought concatenates input fields onto the
+    # output so judge-style rewards see the original prompt alongside the
+    # prediction; comparison-style primaries usually want it False. We pass
+    # through whatever the dataset declared, no harness-side default.
+    cot_kwargs = dict(generator_kwargs)
+    # Constrain the LM's structured output to the dataset's `output_schema:`
+    # when one is set. With no output schema we leave Generator's default
+    # path alone (free-form chat-message shape) for backward compat.
+    if dataset.output_schema is not None and "schema" not in cot_kwargs:
+        cot_kwargs["schema"] = dataset.output_schema
+
     outputs = await synalinks.ChainOfThought(
         reasoning_effort="high",
         language_model=language_model,

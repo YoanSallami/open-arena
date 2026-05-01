@@ -77,6 +77,13 @@ def load_dataset_from_yaml(yaml_path: str, name: str | None = None) -> Dataset:
     `input_data_model` / `output_data_model` are intentionally not exposed
     here — they default to `synalinks.ChatMessages` inside the dataset.
 
+    For task-specific structured output, set `input_schema:` and
+    `output_schema:` instead — each takes a literal JSON Schema (as a YAML
+    map or as a JSON-encoded string). Rows are then wrapped as
+    `synalinks.JsonDataModel(schema=..., json=...)`, the schema flows into
+    the LM as a structured-output constraint, and `y_true` / `y_pred` no
+    longer carry ChatMessage auxiliary noise (`thinking`, `tool_calls`, …).
+
     Args:
         yaml_path: Filesystem path to the YAML config.
         name: Selector under `datasets:`. When `None`, the value of the
