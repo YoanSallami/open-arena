@@ -395,22 +395,17 @@ experiments:
   language_models:
     - ollama/mistral
     - ollama/llama3.2
-  # Cross-dataset rewards computed in addition to each dataset's primary reward.
-  # Each entry has the same shape as a dataset `reward:` plus an optional `alias:`
-  # used as the metric column name. Each extra reward triggers another full
-  # program.evaluate() pass — K extras = K× the model calls per trial.
-  # rewards:
-  #   # Plain LM-as-judge scoring correctness — paired with the recursive
-  #   # variant below so the two can be compared on identical samples.
-  #   - name: lm_as_judge
-  #     alias: lm_judge
-  #     language_model: ollama/llama3.2
-  #     # No `in_mask` — judges see the full row (prompt + prediction).
-  #     instructions: |
-  #       Score 0.0–1.0 on factual correctness of the prediction relative to
-  #       the gold answer. 1.0 means the prediction matches the gold answer
-  #       (modulo formatting); 0.0 means it is wrong. Partial credit is fine
-  #       when the prediction is close but not exact.
+  rewards:
+    # Baseline: plain LM-as-judge with default-style instructions.
+    - name: lm_as_judge
+      alias: lm_judge
+      language_model: ollama/llama3.2
+      # No `in_mask` — judges see the full row (prompt + prediction).
+      instructions: |
+        Score 0.0–1.0 on factual correctness of the prediction relative to
+        the gold answer. 1.0 means the prediction matches the gold answer
+        (modulo formatting); 0.0 means it is wrong. Partial credit is fine
+        when the prediction is close but not exact.
   #   # Recursive LM-as-judge — same scoring task, but the judge is an RLM
   #   # agent that inspects the (gold, prediction) pair with code and
   #   # recursively delegates semantic comparisons to a sub-LM. Heavy: up to
