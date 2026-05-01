@@ -46,7 +46,7 @@ datasets:
         Answer the multiple-choice question. Pick exactly one of A, B, C, or D.
     reward:
       name: exact_match
-      out_mask: [question]
+      out_mask: [question, thinking]
 
   gsm8k_test:
     type: huggingface
@@ -88,7 +88,7 @@ datasets:
         Solve the math word problem. Output only the final numerical answer.
     reward:
       name: exact_match
-      out_mask: [question]
+      out_mask: [question, thinking]
 
   # HellaSwag — commonsense continuation, 4-way MCQ.
   hellaswag_validation:
@@ -131,7 +131,7 @@ datasets:
         Pick the most plausible continuation. Reply with one letter A, B, C, or D.
     reward:
       name: exact_match
-      out_mask: [question]
+      out_mask: [question, thinking]
 
   # ARC-Challenge — grade-school science MCQ. Choice count varies (3-5),
   # so we cannot use an enum on the answer field.
@@ -176,7 +176,7 @@ datasets:
         Answer the science question. Output only the letter (or number) of the correct choice.
     reward:
       name: exact_match
-      out_mask: [question]
+      out_mask: [question, thinking]
 
   # WinoGrande — pronoun resolution, binary choice.
   winogrande_validation:
@@ -220,7 +220,7 @@ datasets:
         Choose which option fills the blank (marked `_`). Reply with "1" or "2".
     reward:
       name: exact_match
-      out_mask: [question]
+      out_mask: [question, thinking]
 
   # BoolQ — yes/no reading comprehension.
   boolq_validation:
@@ -262,7 +262,7 @@ datasets:
         Read the passage and answer the question. Reply with "yes" or "no".
     reward:
       name: exact_match
-      out_mask: [question]
+      out_mask: [question, thinking]
 
   # BIG-Bench Hard (boolean_expressions task — swap `name:` for any of the 23 tasks).
   bbh_boolean_expressions:
@@ -305,7 +305,7 @@ datasets:
         Evaluate the boolean expression. Reply with `True` or `False`.
     reward:
       name: exact_match
-      out_mask: [question]
+      out_mask: [question, thinking]
 
   # DROP — discrete reasoning over paragraphs.
   drop_validation:
@@ -344,7 +344,7 @@ datasets:
         Answer with a short span from the passage (a number, date, or short phrase).
     reward:
       name: exact_match
-      out_mask: [question]
+      out_mask: [question, thinking]
 
   # TruthfulQA (MC1) — pick the single truthful answer; choice count varies.
   truthfulqa_mc1:
@@ -390,7 +390,7 @@ datasets:
         Pick the single truthful answer. Reply with the letter only.
     reward:
       name: exact_match
-      out_mask: [question]
+      out_mask: [question, thinking]
 
   # HumanEval — code generation. Real scoring runs unit tests; exact_match is a placeholder.
   humaneval:
@@ -431,7 +431,7 @@ datasets:
         or docstring, do not wrap in markdown code fences.
     reward:
       name: exact_match
-      out_mask: [prompt]
+      out_mask: [prompt, thinking]
 
   # IFEval — instruction following; rule-based in the original benchmark.
   ifeval:
@@ -514,7 +514,7 @@ datasets:
         Answer using a short span from the context. Output only the span.
     reward:
       name: exact_match
-      out_mask: [question]
+      out_mask: [question, thinking]
 
   # LogiQA — logical reasoning, 4-way MCQ. `options` strings already include
   # "A." / "B." / ... prefixes. The dataset's `answer` field is the literal
@@ -559,7 +559,7 @@ datasets:
         Read the context and answer with one letter A, B, C, or D.
     reward:
       name: exact_match
-      out_mask: [question]
+      out_mask: [question, thinking]
 
   # BBQ — Bias Benchmark for QA (Age subset; swap `split:` for other
   # categories: gender_identity, race_ethnicity, religion, ses, ...).
@@ -603,7 +603,7 @@ datasets:
         Answer with one letter A, B, or C.
     reward:
       name: exact_match
-      out_mask: [question]
+      out_mask: [question, thinking]
 
   # LAMBADA — predict the last word of a passage.
   lambada_test:
@@ -644,7 +644,7 @@ datasets:
         Predict the missing final word that fills the blank `___`. Reply with one word.
     reward:
       name: exact_match
-      out_mask: [question]
+      out_mask: [question, thinking]
 
 default: mmlu_test
 
