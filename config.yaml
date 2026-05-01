@@ -28,7 +28,7 @@ datasets:
         or D. Do not include any explanation, punctuation, or extra text.
     reward:
       name: exact_match
-      in_mask: [content]
+      out_mask: [messages, thinking]
 
   gsm8k_test:
     type: huggingface
@@ -56,7 +56,7 @@ datasets:
         no units, no explanation, no extra text.
     reward:
       name: exact_match
-      in_mask: [content]
+      out_mask: [messages, thinking]
 
   # HellaSwag — commonsense continuation, 4-way MCQ.
   hellaswag_validation:
@@ -84,7 +84,7 @@ datasets:
         A, B, C, or D. No explanation, no extra text.
     reward:
       name: exact_match
-      in_mask: [content]
+      out_mask: [messages, thinking]
 
   # ARC-Challenge — grade-school science MCQ.
   arc_challenge_test:
@@ -114,7 +114,7 @@ datasets:
         correct choice — no explanation, no extra text.
     reward:
       name: exact_match
-      in_mask: [content]
+      out_mask: [messages, thinking]
 
   # WinoGrande — pronoun resolution, binary choice.
   winogrande_validation:
@@ -140,7 +140,7 @@ datasets:
         with only "1" or "2" — no explanation, no extra text.
     reward:
       name: exact_match
-      in_mask: [content]
+      out_mask: [messages, thinking]
 
   # BoolQ — yes/no reading comprehension.
   boolq_validation:
@@ -165,7 +165,7 @@ datasets:
         "yes" or "no" — no explanation, no extra text.
     reward:
       name: exact_match
-      in_mask: [content]
+      out_mask: [messages, thinking]
 
   # BIG-Bench Hard (boolean_expressions task — swap `name:` for any of the 23 tasks).
   bbh_boolean_expressions:
@@ -187,7 +187,7 @@ datasets:
         `False`, with that capitalization — and nothing else.
     reward:
       name: exact_match
-      in_mask: [content]
+      out_mask: [messages, thinking]
 
   # DROP — discrete reasoning over paragraphs.
   drop_validation:
@@ -208,7 +208,7 @@ datasets:
         phrase). Reply with only the answer — no explanation, no extra text.
     reward:
       name: exact_match
-      in_mask: [content]
+      out_mask: [messages, thinking]
 
   # TruthfulQA (MC1) — pick the single truthful answer; choice count varies.
   truthfulqa_mc1:
@@ -235,7 +235,7 @@ datasets:
         Pick the single truthful answer. Reply with exactly one letter — no explanation.
     reward:
       name: exact_match
-      in_mask: [content]
+      out_mask: [messages, thinking]
 
   # HumanEval — code generation. Real scoring runs unit tests; exact_match is a placeholder.
   humaneval:
@@ -258,7 +258,7 @@ datasets:
         any explanation.
     reward:
       name: exact_match
-      in_mask: [content]
+      out_mask: [messages, thinking]
 
   # IFEval — instruction following; rule-based in the original benchmark.
   ifeval:
@@ -306,7 +306,7 @@ datasets:
         Answer using a short span from the context. Reply with only the answer span.
     reward:
       name: exact_match
-      in_mask: [content]
+      out_mask: [messages, thinking]
 
   # LogiQA — logical reasoning, 4-way MCQ. Using fireworks-ai's Parquet
   # mirror; `options` strings already include "A." / "B." / ... prefixes.
@@ -334,7 +334,7 @@ datasets:
         Read the context and answer with exactly one letter: A, B, C, or D.
     reward:
       name: exact_match
-      in_mask: [content]
+      out_mask: [messages, thinking]
 
   # BBQ — Bias Benchmark for QA (Age subset; swap `split:` for other
   # categories: gender_identity, race_ethnicity, religion, ses, ...).
@@ -364,7 +364,7 @@ datasets:
         Answer with exactly one letter: A, B, or C. No explanation.
     reward:
       name: exact_match
-      in_mask: [content]
+      out_mask: [messages, thinking]
 
   # LAMBADA — predict the last word of a passage.
   lambada_test:
@@ -387,7 +387,7 @@ datasets:
         Reply with exactly one word — no punctuation, no explanation.
     reward:
       name: exact_match
-      in_mask: [content]
+      out_mask: [messages, thinking]
 
 default: mmlu_test
 
