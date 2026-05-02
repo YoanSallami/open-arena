@@ -10,6 +10,7 @@ datasets:
     input_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "MMLUQuestion",
         "properties": {
           "question": {
@@ -22,6 +23,7 @@ datasets:
     output_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "MMLUAnswer",
         "properties": {
           "answer": {
@@ -59,6 +61,7 @@ datasets:
     input_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "GSM8KQuestion",
         "properties": {
           "question": {"type": "string", "description": "the math word problem"}
@@ -68,6 +71,7 @@ datasets:
     output_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "GSM8KAnswer",
         "properties": {
           "answer": {
@@ -101,6 +105,7 @@ datasets:
     input_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "HellaSwagQuestion",
         "properties": {
           "question": {"type": "string", "description": "the context plus the four lettered endings"}
@@ -110,6 +115,7 @@ datasets:
     output_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "HellaSwagAnswer",
         "properties": {
           "answer": {
@@ -146,6 +152,7 @@ datasets:
     input_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "ARCQuestion",
         "properties": {
           "question": {"type": "string", "description": "the science question with lettered choices"}
@@ -155,6 +162,7 @@ datasets:
     output_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "ARCAnswer",
         "properties": {
           "answer": {"type": "string", "description": "the letter or number of the correct choice"}
@@ -190,6 +198,7 @@ datasets:
     input_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "WinoGrandeQuestion",
         "properties": {
           "question": {"type": "string", "description": "the sentence with a blank `_` and two numbered options"}
@@ -199,6 +208,7 @@ datasets:
     output_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "WinoGrandeAnswer",
         "properties": {
           "answer": {
@@ -233,6 +243,7 @@ datasets:
     input_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "BoolQQuestion",
         "properties": {
           "question": {"type": "string", "description": "the passage followed by the yes/no question"}
@@ -242,6 +253,7 @@ datasets:
     output_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "BoolQAnswer",
         "properties": {
           "answer": {
@@ -276,6 +288,7 @@ datasets:
     input_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "BBHBooleanQuestion",
         "properties": {
           "question": {"type": "string", "description": "the boolean expression to evaluate"}
@@ -285,6 +298,7 @@ datasets:
     output_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "BBHBooleanAnswer",
         "properties": {
           "answer": {
@@ -318,6 +332,7 @@ datasets:
     input_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "DROPQuestion",
         "properties": {
           "question": {"type": "string", "description": "the passage followed by the question"}
@@ -327,6 +342,7 @@ datasets:
     output_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "DROPAnswer",
         "properties": {
           "answer": {"type": "string", "description": "a short span (number, date, or phrase) from the passage"}
@@ -358,6 +374,7 @@ datasets:
     input_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "TruthfulQAQuestion",
         "properties": {
           "question": {"type": "string", "description": "the question and lettered candidate answers"}
@@ -367,6 +384,7 @@ datasets:
     output_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "TruthfulQAAnswer",
         "properties": {
           "answer": {"type": "string", "description": "the letter of the truthful answer"}
@@ -403,6 +421,7 @@ datasets:
     input_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "HumanEvalQuestion",
         "properties": {
           "prompt": {"type": "string", "description": "the function signature and docstring"}
@@ -412,6 +431,7 @@ datasets:
     output_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "HumanEvalAnswer",
         "properties": {
           "completion": {"type": "string", "description": "the indented Python function body"}
@@ -444,6 +464,7 @@ datasets:
     input_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "IFEvalQuestion",
         "properties": {
           "prompt": {"type": "string", "description": "the original instruction the model must follow"}
@@ -453,6 +474,7 @@ datasets:
     output_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "IFEvalAnswer",
         "properties": {
           "response": {"type": "string", "description": "the model's response (gold = the original prompt for reference)"}
@@ -488,6 +510,7 @@ datasets:
     input_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "SQuADQuestion",
         "properties": {
           "question": {"type": "string", "description": "the context followed by the question"}
@@ -497,6 +520,7 @@ datasets:
     output_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "SQuADAnswer",
         "properties": {
           "answer": {"type": "string", "description": "a short span from the context"}
@@ -529,6 +553,7 @@ datasets:
     input_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "LogiQAQuestion",
         "properties": {
           "question": {"type": "string", "description": "context, question and lettered options"}
@@ -538,6 +563,7 @@ datasets:
     output_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "LogiQAAnswer",
         "properties": {
           "answer": {
@@ -573,6 +599,7 @@ datasets:
     input_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "BBQQuestion",
         "properties": {
           "question": {"type": "string", "description": "the context, question and three lettered choices"}
@@ -582,6 +609,7 @@ datasets:
     output_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "BBQAnswer",
         "properties": {
           "answer": {
@@ -617,6 +645,7 @@ datasets:
     input_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "LAMBADAQuestion",
         "properties": {
           "question": {"type": "string", "description": "the passage with a `___` blank for the missing final word"}
@@ -626,6 +655,7 @@ datasets:
     output_schema: |
       {
         "type": "object",
+        "additionalProperties": false,
         "title": "LAMBADAAnswer",
         "properties": {
           "answer": {"type": "string", "description": "the missing final word"}
