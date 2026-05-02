@@ -34,12 +34,13 @@ async def _evaluate(model_id: str, dataset, generator_kwargs: dict, reward) -> d
     else:
         inputs = synalinks.Input(data_model=dataset.input_data_model)
 
-    # `return_inputs:` is per-dataset (lives in the dataset's `generator:`
-    # block). When True, ChainOfThought concatenates input fields onto the
-    # output so judge-style rewards see the original prompt alongside the
-    # prediction; comparison-style primaries usually want it False. We pass
-    # through whatever the dataset declared, no harness-side default.
-    cot_kwargs = dict(generator_kwargs)
+    # `return_inputs:` and `reasoning_effort:` are per-dataset (lives in the
+    # dataset's `generator:` block). return_inputs=True concatenates input
+    # fields onto the output so judge-style rewards see the original prompt
+    # alongside the prediction; comparison-style primaries usually want it
+    # False. reasoning_effort defaults to "low" — small ollama models are
+    # slow under "high" especially with structured output constraints.
+    cot_kwargs = {"reasoning_effort": "low", **generator_kwargs}
     # Constrain the LM's structured output to the dataset's `output_schema:`
     # when one is set. With no output schema we leave Generator's default
     # path alone (free-form chat-message shape) for backward compat.
@@ -47,7 +48,6 @@ async def _evaluate(model_id: str, dataset, generator_kwargs: dict, reward) -> d
         cot_kwargs["schema"] = dataset.output_schema
 
     outputs = await synalinks.ChainOfThought(
-        reasoning_effort="high",
         language_model=language_model,
         **cot_kwargs,
     )(inputs)
