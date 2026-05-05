@@ -52,8 +52,7 @@ arena -c configs/eval.yaml     # different config
 arena --no-cache               # discard the .kt/ trial cache and start over
 ```
 
-`arena --help` for the full option list. `python main.py` still works as
-a shim if you prefer that.
+`arena --help` for the full option list.
 
 ## Launch the autoresearch agent
 
