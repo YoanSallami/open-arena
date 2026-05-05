@@ -65,14 +65,15 @@ def load_dataset_from_yaml(yaml_path: str, name: str | None = None) -> Dataset:
     default: gsm8k_train
     ```
 
-    The `type` key dispatches to a `Dataset` subclass (currently only
-    `huggingface` -> `HuggingFaceDataset`). All other keys are forwarded
-    verbatim as keyword arguments to the subclass constructor — so any
-    `HuggingFaceDataset` parameter (`revision`, `streaming`, `data_files`,
-    `token`, ...) can be set from YAML. Note that the HF `name` parameter
-    coexists with the top-level dataset selector key (the YAML mapping key
-    under `datasets:`); they don't collide because they live at different
-    nesting levels.
+    The `type` key dispatches to a `Dataset` subclass via `_DATASET_TYPES`
+    (`huggingface`, `local`, `folder`, `langfuse`, `langsmith`, `opik`,
+    `phoenix`, `braintrust`). All other keys are forwarded verbatim as
+    keyword arguments to the subclass constructor — so any provider-
+    specific parameter (HuggingFace `revision` / `streaming` / `data_files`
+    / `token`, Langfuse `dataset_name` / `host`, …) can be set from YAML.
+    Note that the HF `name` parameter coexists with the top-level dataset
+    selector key (the YAML mapping key under `datasets:`); they don't
+    collide because they live at different nesting levels.
 
     `input_data_model` / `output_data_model` are intentionally not exposed
     here — they default to `synalinks.ChatMessages` inside the dataset.

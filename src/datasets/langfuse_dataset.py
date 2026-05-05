@@ -3,10 +3,6 @@
 from datetime import datetime
 from datetime import timezone
 
-import jinja2
-import numpy as np
-import synalinks
-
 from src.datasets.dataset import Dataset
 
 
@@ -79,19 +75,25 @@ class LangfuseDataset(Dataset):
         streaming=True,
         page_size=50,
         input_data_model=None,
+        input_schema=None,
         input_template=None,
         output_data_model=None,
+        output_schema=None,
         output_template=None,
         batch_size=1,
         limit: int = None,
+        repeat: int = 1,
     ):
         super().__init__(
-            input_data_model=input_data_model or synalinks.ChatMessages,
+            input_data_model=input_data_model,
+            input_schema=input_schema,
             input_template=input_template,
-            output_data_model=output_data_model or synalinks.ChatMessage,
+            output_data_model=output_data_model,
+            output_schema=output_schema,
             output_template=output_template,
             batch_size=batch_size,
             limit=limit,
+            repeat=repeat,
         )
         self.dataset_name = dataset_name
         self.version = _coerce_version(version)
@@ -109,11 +111,7 @@ class LangfuseDataset(Dataset):
             else self._client.get_dataset(dataset_name, version=self.version)
         )
 
-        env = jinja2.Environment(undefined=jinja2.StrictUndefined)
-        self._input_tmpl = env.from_string(input_template)
-        self._output_tmpl = env.from_string(output_template)
-
-    def _iter_items(self):
+    def _iter_rows(self):
         if not self.streaming:
             for item in self._dataset.items:
                 yield self._item_to_row(item)
@@ -145,33 +143,6 @@ class LangfuseDataset(Dataset):
             "id": item.id,
         }
 
-    def __iter__(self):
-        x_buf, y_buf = [], []
-        seen = 0
-        for row in self._iter_items():
-            if self.limit is not None and seen >= self.limit:
-                break
-            seen += 1
-            x = self.input_data_model.model_validate_json(
-                self._input_tmpl.render(**row)
-            )
-            y = self.output_data_model.model_validate_json(
-                self._output_tmpl.render(**row)
-            )
-            x_buf.append(x)
-            y_buf.append(y)
-            if len(x_buf) >= self.batch_size:
-                yield (
-                    np.array(x_buf, dtype="object"),
-                    np.array(y_buf, dtype="object"),
-                )
-                x_buf, y_buf = [], []
-        if x_buf:
-            yield (
-                np.array(x_buf, dtype="object"),
-                np.array(y_buf, dtype="object"),
-            )
-
     def __len__(self):
         if self.streaming and self.limit is None:
             raise NotImplementedError(
@@ -182,4 +153,4 @@ class LangfuseDataset(Dataset):
             n = self.limit
         else:
             n = len(self._dataset.items)
-        return (n + self.batch_size - 1) // self.batch_size
+        return self._total_batches(n)

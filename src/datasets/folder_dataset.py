@@ -3,9 +3,6 @@
 import json
 from pathlib import Path
 
-import jinja2
-import numpy as np
-import synalinks
 import yaml
 
 from src.datasets.dataset import Dataset
@@ -81,19 +78,25 @@ class FolderDataset(Dataset):
         format=None,
         encoding="utf-8",
         input_data_model=None,
+        input_schema=None,
         input_template=None,
         output_data_model=None,
+        output_schema=None,
         output_template=None,
         batch_size=1,
         limit: int = None,
+        repeat: int = 1,
     ):
         super().__init__(
-            input_data_model=input_data_model or synalinks.ChatMessages,
+            input_data_model=input_data_model,
+            input_schema=input_schema,
             input_template=input_template,
-            output_data_model=output_data_model or synalinks.ChatMessage,
+            output_data_model=output_data_model,
+            output_schema=output_schema,
             output_template=output_template,
             batch_size=batch_size,
             limit=limit,
+            repeat=repeat,
         )
         self.path = Path(path)
         if not self.path.exists():
@@ -110,10 +113,6 @@ class FolderDataset(Dataset):
             raise ValueError(
                 f"Unsupported `format`={format!r}. Use 'json', 'yaml', or 'text'."
             )
-
-        env = jinja2.Environment(undefined=jinja2.StrictUndefined)
-        self._input_tmpl = env.from_string(input_template)
-        self._output_tmpl = env.from_string(output_template)
 
     def _list_files(self):
         glob = self.path.rglob if self.recursive else self.path.glob
@@ -153,33 +152,6 @@ class FolderDataset(Dataset):
         for file in self._list_files():
             yield self._load_file(file)
 
-    def __iter__(self):
-        x_buf, y_buf = [], []
-        seen = 0
-        for row in self._iter_rows():
-            if self.limit is not None and seen >= self.limit:
-                break
-            seen += 1
-            x = self.input_data_model.model_validate_json(
-                self._input_tmpl.render(**row)
-            )
-            y = self.output_data_model.model_validate_json(
-                self._output_tmpl.render(**row)
-            )
-            x_buf.append(x)
-            y_buf.append(y)
-            if len(x_buf) >= self.batch_size:
-                yield (
-                    np.array(x_buf, dtype="object"),
-                    np.array(y_buf, dtype="object"),
-                )
-                x_buf, y_buf = [], []
-        if x_buf:
-            yield (
-                np.array(x_buf, dtype="object"),
-                np.array(y_buf, dtype="object"),
-            )
-
     def __len__(self):
         n = self.limit if self.limit is not None else len(self._list_files())
-        return (n + self.batch_size - 1) // self.batch_size
+        return self._total_batches(n)

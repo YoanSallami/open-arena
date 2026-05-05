@@ -22,6 +22,7 @@ from synalinks.src.modules.agents.recursive_language_model_agent import (
 from synalinks.src.modules.agents.recursive_language_model_agent import (
     get_default_instructions as _get_rlm_default_instructions,
 )
+from synalinks.src.modules.language_models import get as _get_lm
 from synalinks.src.programs import Program
 from synalinks.src.rewards.reward_wrappers import ProgramAsJudge
 from synalinks.src.saving import serialization_lib
@@ -91,8 +92,8 @@ class RecursiveLMAsJudgeProgram(Program):
 
     ```python
     program = RecursiveLMAsJudgeProgram(
-        language_model=synalinks.LanguageModel("openai/gpt-4o"),
-        sub_language_model=synalinks.LanguageModel("openai/gpt-4o-mini"),
+        language_model="openai/gpt-4o",
+        sub_language_model="openai/gpt-4o-mini",
         instructions="Score 0.0–1.0 on factual correctness.",
         max_iterations=8,
         max_llm_calls=10,
@@ -101,11 +102,12 @@ class RecursiveLMAsJudgeProgram(Program):
     ```
 
     Args:
-        language_model (LanguageModel): The primary language model driving
-            the per-turn code generator and the final-answer step.
-        sub_language_model (LanguageModel): Optional. The language model
-            used for recursive `llm_query` / `llm_query_batched` calls.
-            Defaults to `language_model`.
+        language_model: The primary model driving the per-turn code
+            generator and the final-answer step. Accepts a `LanguageModel`,
+            a config dict, or a string identifier (e.g. `"openai/gpt-4o"`).
+        sub_language_model: Optional. The model used for recursive
+            `llm_query` / `llm_query_batched` calls. Same forms as
+            `language_model`. Defaults to `language_model`.
         prompt_template (str): The default jinja2 prompt template
             forwarded to the inner generator (see `Generator`).
         examples (list): The default examples forwarded to the inner
@@ -150,6 +152,12 @@ class RecursiveLMAsJudgeProgram(Program):
             name=name,
             description=description,
             trainable=trainable,
+        )
+        # Resolve string / dict / instance identifiers up front, matching
+        # the pattern used inside synalinks (e.g. `ChainOfThought`).
+        language_model = _get_lm(language_model)
+        sub_language_model = (
+            _get_lm(sub_language_model) if sub_language_model is not None else language_model
         )
         self.judge = RecursiveLanguageModelAgent(
             data_model=JudgmentOutput,
@@ -244,19 +252,20 @@ class RecursiveLMAsJudge(ProgramAsJudge):
     ```python
     program.compile(
         reward=RecursiveLMAsJudge(
-            language_model=synalinks.LanguageModel("openai/gpt-4o"),
-            sub_language_model=synalinks.LanguageModel("openai/gpt-4o-mini"),
+            language_model="openai/gpt-4o",
+            sub_language_model="openai/gpt-4o-mini",
             instructions="Score the assistant's answer 0.0–1.0 based on factual correctness.",
         ),
     )
     ```
 
     Args:
-        language_model (LanguageModel): The primary language model driving
-            the per-turn code generator and the final-answer step.
-        sub_language_model (LanguageModel): Optional. The language model
-            used for recursive `llm_query` calls. Defaults to
-            `language_model`.
+        language_model: The primary model driving the per-turn code
+            generator and the final-answer step. Accepts a `LanguageModel`,
+            a config dict, or a string identifier (e.g. `"openai/gpt-4o"`).
+        sub_language_model: Optional. The model used for recursive
+            `llm_query` calls. Same forms as `language_model`. Defaults
+            to `language_model`.
         prompt_template (str): The default jinja2 prompt template
             forwarded to the inner generator (see `Generator`).
         examples (list): The default examples forwarded to the inner

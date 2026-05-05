@@ -14,7 +14,8 @@ union-ing two sources:
   (auto-discovered from `synalinks.src.rewards.ALL_OBJECTS`).
   Examples: `exact_match`, `cosine_similarity`, `lm_as_judge`.
 - **project-local** — classes listed in `_LOCAL_REWARDS`. Today:
-  `JudgePanel`, `RecursiveLMAsJudge`. This is what you extend.
+  `JudgePanel`, `RecursiveLMAsJudge`, `DeepEval`. This is what you
+  extend.
 
 Lookup is by `to_snake_case(cls.__name__)`, so `MyClassName` becomes
 `my_class_name` in YAML.
@@ -51,21 +52,34 @@ fields of the chat message (e.g. `in_mask=[content]` to ignore
 
 ## What `y_pred` actually contains
 
-The CLI builds the eval program with `synalinks.ChainOfThought(
-return_inputs=True, …)` (see `src/cli.py`). That means `y_pred` is the
-**input prompt concatenated with the prediction**, not just the
-prediction. Concretely, with the default chat-message templates:
+The harness builds the eval program with `synalinks.Generator(
+return_inputs=True, …)` (see `evaluate.py:build_program`). That means
+`y_pred` is the **input prompt concatenated with the prediction**, not
+just the prediction.
+
+For a schema-based dataset (e.g. `input_schema: {question: str}`,
+`output_schema: {answer: "A"|"B"|"C"|"D"}`):
 
 ```jsonc
 // y_pred (what the reward sees)
+{ "question": "<original prompt>", "answer": "A" }
+
+// y_true (what the dataset's output_template produced)
+{ "answer": "<gold letter>" }
+```
+
+For a default chat-message dataset (no `input_schema` /
+`output_schema` set):
+
+```jsonc
+// y_pred
 {
   "messages": [{"role": "user", "content": "<original prompt>"}],
-  "thinking": "<CoT reasoning content>",
   "role": "assistant",
   "content": "<the model's answer>"
 }
 
-// y_true (what the dataset's output_template produced)
+// y_true
 { "role": "assistant", "content": "<gold answer>" }
 ```
 
@@ -82,11 +96,12 @@ gold reference in a vacuum.
   and defeat the point of `return_inputs=True`. Let the judge see the
   full row.
 - **Comparison-style rewards (`exact_match`, `cosine_similarity`,
-  length checks, regex): keep `in_mask: [content]`.** They compare
-  `y_pred` against `y_true` field-by-field, and `y_true` only has
-  `role` + `content` — without the mask, the extra `messages` /
-  `thinking` / `role` fields on `y_pred` will never match and the
-  reward will always be 0.
+  length checks, regex): mask the comparison down to whatever fields
+  appear in `y_true`.** Schema-based dataset → `out_mask` should drop
+  the input fields the harness re-attached via `return_inputs=True`
+  (e.g. `out_mask: [question]`). Chat-message default → keep
+  `in_mask: [content]` so the extra `messages` / `role` fields on
+  `y_pred` don't drive the score to 0.
 
 ### Opting out per-dataset
 
@@ -155,7 +170,9 @@ calls to a deterministic library) belong here.
 
 ## The `LMAsJudgeProgram` pattern
 
-The two existing project-local rewards both follow the same shape:
+`JudgePanel` and `RecursiveLMAsJudge` both follow the same shape
+(`DeepEval` is a thinner wrapper around an external library and is
+not a `LMAsJudgeProgram`):
 
 1. An inner `Program` subclass that takes `[y_true, y_pred]` as input.
 2. Inside `call`: prefix the gold side, concatenate, delegate to one or
@@ -314,12 +331,13 @@ re-score. The autoresearch loop in `AUTORESEARCH.md` automates this.
 - **`__init__` with non-default args** — won't be auto-registered.
   Either default them and validate inside `__init__`, or add explicit
   registration in `_LOCAL_REWARDS` plus custom YAML coercion in `get`.
-- **Forgetting `in_mask` / `out_mask` on comparison rewards** — equality
-  / similarity rewards will pick up `role`, `thinking`, and (since the
-  CoT runs with `return_inputs=True`) the entire input `messages`
-  field, none of which appear in `y_true`. Comparison rewards should
-  pass `in_mask: [content]`. Judge rewards must NOT pass `in_mask:
-  [content]` — that hides the prompt.
+- **Forgetting `in_mask` / `out_mask` on comparison rewards** — with
+  `return_inputs=True`, `y_pred` carries the input fields alongside
+  the prediction. Equality / similarity rewards must mask those out
+  (`out_mask: [<input field names>]` for schema datasets, or
+  `in_mask: [content]` for chat-message defaults) so the comparison
+  only spans fields that exist in `y_true`. Judge rewards must NOT
+  mask away the input — that hides the prompt.
 - **Reward not in `[0, 1]`** — break the agreement / Spearman analysis,
   which assumes higher is better and bounded. Clamp or normalize inside
   the reward.

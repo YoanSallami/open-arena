@@ -2,7 +2,10 @@
 
 import json as _json
 
-from synalinks.src.backend.common.json_data_model import JsonDataModel
+import jinja2
+import numpy as np
+import synalinks
+from synalinks import JsonDataModel
 
 
 class Dataset:
@@ -14,8 +17,11 @@ class Dataset:
     `synalinks/src/trainers/data_adapters/generator_data_adapter.py` and
     the dispatch in `synalinks/src/trainers/data_adapters/__init__.py`.
 
-    Subclasses implement `__iter__` as a generator method (using `yield`)
-    that produces those tuples. Calling the dataset returns a fresh
+    Subclasses implement `_iter_rows()` as a generator yielding raw row
+    dicts (one per source example). The base class' `__iter__` then
+    renders each row through the Jinja2 templates, validates the shape,
+    and yields batched `(x, y)` numpy object arrays — including the
+    `repeat` expansion. Calling the dataset returns a fresh
     `types.GeneratorType` suitable for synalinks:
 
     ```python
@@ -49,9 +55,15 @@ class Dataset:
             rows into the target shape. Required.
         batch_size (int): Number of examples per yielded batch. `None` lets
             the subclass decide (or yield the whole dataset as one batch).
-        limit (int): Optional. Maximum number of examples to iterate over.
-            `None` (default) means no cap. Useful for capping huge or
-            streaming sources for quick experiments / smoke tests.
+        limit (int): Optional. Maximum number of *raw* (pre-repeat) examples
+            to iterate over. `None` (default) means no cap. Useful for
+            capping huge or streaming sources for quick experiments / smoke
+            tests.
+        repeat (int): Number of consecutive copies to emit per raw example.
+            Defaults to 1 (no expansion). Setting `repeat == batch_size`
+            makes every batch a group of N rollouts of the same prompt —
+            the expected layout for GRPO-style RL where reward statistics
+            are computed across rollouts of one input.
         **kwargs: Provider-specific fields forwarded by subclasses (e.g. HF
             dataset name, split, revision, API key, file path, ...).
     """
@@ -66,6 +78,7 @@ class Dataset:
         output_template=None,
         batch_size=None,
         limit: int = None,
+        repeat: int = 1,
         **kwargs,
     ):
         if input_template is None:
@@ -80,6 +93,14 @@ class Dataset:
             raise ValueError(
                 "Pass either `output_data_model` or `output_schema`, not both."
             )
+        if not isinstance(repeat, int) or repeat < 1:
+            raise ValueError(f"`repeat` must be a positive int; got {repeat!r}.")
+        # Default to ChatMessages / ChatMessage when neither a data_model nor
+        # a schema is given — matches the historical per-subclass behavior.
+        if input_data_model is None and input_schema is None:
+            input_data_model = synalinks.ChatMessages
+        if output_data_model is None and output_schema is None:
+            output_data_model = synalinks.ChatMessage
         self.input_data_model = input_data_model
         self.input_schema = _coerce_schema(input_schema)
         self.input_template = input_template
@@ -88,6 +109,11 @@ class Dataset:
         self.output_template = output_template
         self.batch_size = batch_size
         self.limit = limit
+        self.repeat = repeat
+
+        env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+        self._input_tmpl = env.from_string(input_template)
+        self._output_tmpl = env.from_string(output_template)
 
     def _make_input(self, rendered: str):
         if self.input_schema is not None:
@@ -99,9 +125,50 @@ class Dataset:
             return JsonDataModel(schema=self.output_schema, json=_json.loads(rendered))
         return self.output_data_model.model_validate_json(rendered)
 
-    def __iter__(self):
-        """Yield one `(inputs,)` or `(inputs, targets)` tuple per batch."""
+    def _iter_rows(self):
+        """Yield raw row dicts from the underlying source.
+
+        Subclasses must implement this. Each yielded dict is passed as
+        kwargs to the Jinja2 input/output templates, so its keys must be
+        valid Python identifiers matching the template variables.
+        """
         raise NotImplementedError
+
+    def __iter__(self):
+        """Render rows through the templates and yield `(x, y)` batches.
+
+        Honors `limit` (caps raw rows), `repeat` (each raw example is
+        emitted `repeat` times in a row), and `batch_size` (size of the
+        yielded numpy object arrays). The trailing partial batch is
+        flushed at the end.
+        """
+        x_buf, y_buf = [], []
+        seen = 0
+        for row in self._iter_rows():
+            if self.limit is not None and seen >= self.limit:
+                break
+            seen += 1
+            x = self._make_input(self._input_tmpl.render(**row))
+            y = self._make_target(self._output_tmpl.render(**row))
+            for _ in range(self.repeat):
+                x_buf.append(x)
+                y_buf.append(y)
+                if len(x_buf) >= self.batch_size:
+                    yield (
+                        np.array(x_buf, dtype="object"),
+                        np.array(y_buf, dtype="object"),
+                    )
+                    x_buf, y_buf = [], []
+        if x_buf:
+            yield (
+                np.array(x_buf, dtype="object"),
+                np.array(y_buf, dtype="object"),
+            )
+
+    def _total_batches(self, num_rows: int) -> int:
+        """Number of batches given `num_rows` raw (pre-repeat) examples."""
+        n = num_rows * self.repeat
+        return (n + self.batch_size - 1) // self.batch_size
 
     def __call__(self):
         """Return a fresh generator over the dataset's batches."""

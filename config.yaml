@@ -5,7 +5,7 @@ datasets:
     name: all
     split: test
     streaming: true
-    limit: 50
+    limit: 5
     batch_size: 1
     input_schema: |
       {
@@ -56,7 +56,7 @@ datasets:
     name: main
     split: test
     streaming: true
-    limit: 50
+    limit: 5
     batch_size: 1
     input_schema: |
       {
@@ -100,7 +100,7 @@ datasets:
     path: Rowan/hellaswag
     split: validation
     streaming: true
-    limit: 50
+    limit: 5
     batch_size: 1
     input_schema: |
       {
@@ -147,7 +147,7 @@ datasets:
     name: ARC-Challenge
     split: test
     streaming: true
-    limit: 50
+    limit: 5
     batch_size: 1
     input_schema: |
       {
@@ -193,7 +193,7 @@ datasets:
     name: winogrande_xl
     split: validation
     streaming: true
-    limit: 50
+    limit: 5
     batch_size: 1
     input_schema: |
       {
@@ -238,7 +238,7 @@ datasets:
     path: google/boolq
     split: validation
     streaming: true
-    limit: 50
+    limit: 5
     batch_size: 1
     input_schema: |
       {
@@ -283,7 +283,7 @@ datasets:
     name: boolean_expressions
     split: test
     streaming: true
-    limit: 50
+    limit: 5
     batch_size: 1
     input_schema: |
       {
@@ -327,7 +327,7 @@ datasets:
     path: ucinlp/drop
     split: validation
     streaming: true
-    limit: 50
+    limit: 5
     batch_size: 1
     input_schema: |
       {
@@ -369,7 +369,7 @@ datasets:
     name: multiple_choice
     split: validation
     streaming: true
-    limit: 50
+    limit: 5
     batch_size: 1
     input_schema: |
       {
@@ -416,7 +416,7 @@ datasets:
     path: openai/openai_humaneval
     split: test
     streaming: true
-    limit: 50
+    limit: 5
     batch_size: 1
     input_schema: |
       {
@@ -459,7 +459,7 @@ datasets:
     path: google/IFEval
     split: train
     streaming: true
-    limit: 50
+    limit: 5
     batch_size: 1
     input_schema: |
       {
@@ -505,7 +505,7 @@ datasets:
     path: rajpurkar/squad
     split: validation
     streaming: true
-    limit: 50
+    limit: 5
     batch_size: 1
     input_schema: |
       {
@@ -548,7 +548,7 @@ datasets:
     path: fireworks-ai/logiqa
     split: test
     streaming: true
-    limit: 50
+    limit: 5
     batch_size: 1
     input_schema: |
       {
@@ -594,7 +594,7 @@ datasets:
     path: walledai/BBQ
     split: age
     streaming: true
-    limit: 50
+    limit: 5
     batch_size: 1
     input_schema: |
       {
@@ -640,7 +640,7 @@ datasets:
     name: en
     split: test
     streaming: true
-    limit: 50
+    limit: 5
     batch_size: 1
     input_schema: |
       {
@@ -679,78 +679,42 @@ datasets:
 default: mmlu_test
 
 experiments:
+  primary_direction: max          # higher reward = better (default)
   language_models:
     - ollama/mistral
     - ollama/llama3.2
-  # rewards: temporarily disabled while we re-establish a clean primary
-  # baseline on both models. Last sweep had llama3.2 crashing on
-  # lm_as_judge (synalinks ProgramAsJudge.call expected dict-like, got
-  # raw float — likely judge LM produced malformed structured output).
-  # Re-add once primary confirms on both models.
-  # rewards:
-  #   - name: lm_as_judge
-  #     alias: lm_judge
-  #     language_model: ollama/llama3.2
-  #     instructions: |
-  #       Score 0.0–1.0 on factual correctness of the prediction relative to
-  #       the gold answer. 1.0 means the prediction matches the gold answer
-  #       (modulo formatting); 0.0 means it is wrong. Partial credit is fine
-  #       when the prediction is close but not exact.
-  #   # Recursive LM-as-judge — same scoring task, but the judge is an RLM
-  #   # agent that inspects the (gold, prediction) pair with code and
-  #   # recursively delegates semantic comparisons to a sub-LM. Heavy: up to
-  #   # `max_iterations` primary calls + `max_llm_calls` sub-LM calls per
-  #   # example, on top of the trial's own model run.
-  #   #
-  #   # `language_model` here must be a capable model — it drives per-turn
-  #   # code generation and the structured `submit`, which small models
-  #   # (7B-class Ollama, llama3.2, etc.) cannot do reliably. Use a
-  #   # frontier-class model for the primary; `sub_language_model` is the
-  #   # cheap one used for `llm_query` / `llm_query_batched` and can be
-  #   # small.
-  #   - name: recursive_lm_as_judge
-  #     alias: rlm_judge
-  #     language_model: openai/gpt-4o
-  #     sub_language_model: openai/gpt-4o-mini
-  #     # No `in_mask` — RLM judge inspects the full prompt + prediction.
-  #     max_iterations: 8
-  #     max_llm_calls: 10
-  #     instructions: |
-  #       Score 0.0–1.0 on factual correctness of the prediction relative to
-  #       the gold answer. Use code to extract and normalize both sides, fall
-  #       back to `llm_query` only when literal comparison isn't enough.
-  #   # Judge panel — N small LMs score in parallel; if their reward spread
-  #   # is within `agreement_threshold` the panelist closest to the mean
-  #   # wins, otherwise the smart LM is invoked and its verdict overrides
-  #   # the panel. Cost: M small-LM calls always, +1 smart-LM call only on
-  #   # disagreement.
-  #   - name: judge_panel
-  #     alias: panel_judge
-  #     panel_language_models:
-  #       - ollama/mistral
-  #       - ollama/qwen
-  #       - ollama/llama3.2
-  #     smart_language_model: ollama/llama3.2
-  #     agreement_threshold: 0.2
-  #     # No `in_mask` — panelists see the full prompt + prediction.
-  #     instructions: |
-  #       Score 0.0–1.0 on factual correctness of the prediction relative to
-  #       the gold answer. 1.0 means the prediction matches the gold answer
-  #       (modulo formatting); 0.0 means it is wrong. Partial credit is fine
-  #       when the prediction is close but not exact.
   datasets:
     - mmlu_test
     - gsm8k_test
-    # - hellaswag_validation
-    # - arc_challenge_test
-    # - winogrande_validation
-    # - boolq_validation
-    # - bbh_boolean_expressions
-    # - drop_validation
-    # - truthfulqa_mc1
-    # - humaneval
-    # - ifeval
-    # - squad_validation
-    # - logiqa_test
-    # - bbq_age
-    # - lambada_test
+    - hellaswag_validation
+    - arc_challenge_test
+    - winogrande_validation
+    - boolq_validation
+    - bbh_boolean_expressions
+    - drop_validation
+    - truthfulqa_mc1
+    - humaneval
+    - ifeval
+    - squad_validation
+    - logiqa_test
+    - bbq_age
+    - lambada_test
+
+  rewards:
+    # LM-as-judge for semantic correctness — complements the per-dataset
+    # `exact_match` primaries, which are strict on surface form. Catches
+    # cases where the model is right but uses a different formatting
+    # ("twenty" vs `20`, "yes" vs `true`, trailing period, etc.). Adds one
+    # full evaluate() pass per trial, so cost = 2× the primary's LM calls.
+    - name: lm_as_judge
+      alias: lm_correctness
+      language_model: ollama/llama3.2
+      # Keep both `question` and `answer` (judge needs the prompt for context);
+      # drop `thinking` so CoT noise doesn't bias the score.
+      out_mask: [thinking]
+      instructions: |
+        Score 0.0–1.0 on whether the candidate response is correct given the
+        expected response. Ignore formatting, capitalization, units, and
+        surface-form differences — judge only the underlying meaning or
+        value. Return 1.0 for fully correct, 0.0 for clearly wrong, and a
+        partial score in between when the answer is partially right.

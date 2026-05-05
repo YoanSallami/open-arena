@@ -44,13 +44,13 @@ To set up a new experiment, work with the user to:
    context:
    - `README.md` — repository overview.
    - `AGENTS.md` / `CLAUDE.md` — notes for AI coding agents (read this).
-   - `evaluate.py` — sweep entrypoint. Do not modify.
+   - `evaluate.py` — sweep entrypoint and harness (oracle, trial loop,
+     matrix rendering) plus the editable `build_program()` that
+     describes the program graph. Do not modify.
    - `analyze.py` — post-sweep scoring (agreement + Spearman). Do not
      modify.
    - `prepare_data.py` — data-prep entrypoint. Do not modify
      autonomously; edits require explicit human approval first.
-   - `src/cli.py` — the sweep harness (oracle, trial loop, matrix
-     rendering). Do not modify.
    - `src/datasets/` — dataset loaders. Do not modify.
    - `src/rewards/__init__.py` — the reward registry. Read it; the only
      edit allowed here is registering a new project-local reward you
@@ -86,7 +86,7 @@ To set up a new experiment, work with the user to:
    If a provider needs auth and credentials are missing, tell the human.
 5. **Initialize `results.tsv`** with the header row only:
    ```bash
-   printf 'commit\tcandidate\tagreement\tspearman\tstatus\tdescription\n' > results.tsv
+   printf 'commit\tcandidate\ttop1\tpairwise\tsp_min\tsp_med\tsp_max\tn_usable\tstatus\tdescription\n' > results.tsv
    ```
 6. **Confirm and go**.
 
@@ -116,8 +116,8 @@ comparison against earlier results.
   header.
 
 **What you CANNOT do:**
-- Modify `src/cli.py`, `src/datasets/`, `src/keras_stub.py`, or
-  `evaluate.py`. The harness is fixed.
+- Modify `evaluate.py`, `src/datasets/`, or `src/keras_stub.py`. The
+  harness is fixed.
 - Modify `prepare_data.py` autonomously. It is editable, but only with
   prior agreement from the human — pause the loop, propose the change,
   and wait for explicit approval before touching it.
@@ -197,22 +197,40 @@ Pivot to matrices in your head (or `python -c`) and compute:
 When an experiment is done, log it to `results.tsv` (tab-separated, NOT
 comma-separated — commas break in descriptions and matrix cells).
 
-The TSV has a header row and 6 columns:
+The TSV has a header row and 10 columns:
 
 ```
-commit    candidate    agreement    spearman    status    description
+commit    candidate    top1    pairwise    sp_min    sp_med    sp_max    n_usable    status    description
 ```
 
 1. git commit hash (short, 7 chars).
 2. candidate alias being evaluated (the `alias:` from
    `experiments.rewards`, e.g. `panel_judge`). If the run scored
    multiple candidates, log one row per candidate with the same commit.
-3. best-model agreement vs primary, fraction in [0,1], 6 decimals (e.g.
-   `0.750000`). `0.000000` for crashes.
-4. mean per-dataset Spearman vs primary, signed, 6 decimals (e.g.
-   `0.823000`). `0.000000` for crashes.
-5. status: `keep`, `discard`, or `crash`.
-6. short text description of what this experiment tried.
+3. **top1** — fraction of usable datasets where the candidate's #1
+   model matches the primary's #1, in [0,1], 6 decimals. `0.000000`
+   for crashes.
+4. **pairwise** — Kendall-style pairwise agreement averaged across
+   datasets (fraction of model pairs where primary and candidate agree
+   on which is stronger; ties on the same side count as agreement,
+   ties on only one side count as 0.5). In [0,1], 6 decimals. With 2
+   models pairwise == top1; with 3+ models pairwise is the smoother
+   signal. `0.000000` for crashes.
+5. **sp_min** — minimum per-dataset Spearman ρ vs primary. Signed,
+   6 decimals. The "worst case" datapoint — a strongly negative value
+   means the candidate actively inverts ranking on at least one
+   dataset, even if other stats look fine. `0.000000` for crashes.
+6. **sp_med** — median per-dataset Spearman ρ vs primary. Signed,
+   6 decimals. Robust to single-dataset outliers (which an arithmetic
+   mean would smooth away). `0.000000` for crashes.
+7. **sp_max** — maximum per-dataset Spearman ρ vs primary. Signed,
+   6 decimals. `0.000000` for crashes.
+8. **n_usable** — integer count of datasets contributing to the stats
+   (those with both primary and candidate scores for the same model
+   set). `0` for crashes. Lets you see at a glance whether failed
+   trials shrank the comparison.
+9. status: `keep`, `discard`, or `crash`.
+10. short text description of what this experiment tried.
 
 Example:
 
@@ -269,11 +287,23 @@ LOOP FOREVER:
    ```bash
    uv run analyze.py
    ```
-   Each line printed is `candidate<TAB>agreement<TAB>spearman` —
-   exactly the middle three columns of `results.tsv`. (Pass a path
-   argument to score a TSV other than `.kt/last_run.tsv`.) The script
-   exits non-zero with a stderr message if the TSV is missing/empty,
-   so you can also use it as the crash check in step 7.
+   Stdout: one row per candidate, shape
+   `candidate<TAB>top1<TAB>pairwise<TAB>sp_min<TAB>sp_med<TAB>sp_max<TAB>n_usable`
+   — exactly columns 2–8 of `results.tsv`. (Pass a path argument to
+   score a TSV other than `.kt/last_run.tsv`.)
+
+   Stderr: a human-readable summary with two sections — the best
+   model per dataset under the primary `reward` metric (for model
+   selection), and an aligned reward-analysis table plus a
+   disagreement breakdown listing the datasets where each candidate
+   would have crowned a different #1 model. Read this when running
+   interactively; pipe `2>` to capture it.
+
+   Exits non-zero with a stderr message if the TSV is missing or
+   empty (so you can use it as the crash check in step 7). Exits 0
+   when the TSV has primary scores but no candidate metrics — in
+   that case the model-selection summary still prints to stderr,
+   stdout is empty (no candidate rows to log).
 
 7. **Crash check.** If `.kt/last_run.tsv` is missing or empty, the run
    crashed:
@@ -289,15 +319,24 @@ LOOP FOREVER:
    step 6:
    ```bash
    COMMIT=$(git rev-parse --short HEAD)
-   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$COMMIT" "<cand>" "<agreement>" "<spearman>" "keep" "<description>" >> results.tsv
+   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+     "$COMMIT" "<cand>" "<top1>" "<pairwise>" "<sp_min>" "<sp_med>" "<sp_max>" "<n_usable>" "keep" "<description>" >> results.tsv
    ```
    For crashes:
    ```bash
-   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$COMMIT" "<cand>" "0.000000" "0.000000" "crash" "<description>" >> results.tsv
+   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+     "$COMMIT" "<cand>" "0.000000" "0.000000" "0.000000" "0.000000" "0.000000" "0" "crash" "<description>" >> results.tsv
    ```
 
-9. **If agreement improved** (or agreement equal and Spearman
-   improved), advance the branch — keep the commit, do nothing.
+9. **If pairwise improved** (or pairwise equal and `sp_med` improved),
+   advance the branch — keep the commit, do nothing. `pairwise` is
+   preferred over `top1` because it stays informative when the sweep
+   has more than two models (top1 is binary on a small model set).
+   `sp_med` (median) is preferred over the arithmetic mean it replaces
+   because it's robust to a single-dataset catastrophic disagreement —
+   if `sp_min` is sharply negative while `sp_med` is high, the
+   candidate is *actively inverted on one dataset* and should be
+   discarded even when other stats look fine.
 
 10. **If equal or worse**, revert:
     ```bash

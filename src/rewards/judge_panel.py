@@ -17,6 +17,7 @@ import asyncio
 
 from synalinks.src import ops
 from synalinks.src.modules import SelfCritique
+from synalinks.src.modules.language_models import get as _get_lm
 from synalinks.src.programs import Program
 from synalinks.src.rewards.reward_wrappers import ProgramAsJudge
 from synalinks.src.saving import serialization_lib
@@ -43,11 +44,8 @@ class JudgePanelProgram(Program):
 
     ```python
     program = JudgePanelProgram(
-        panel_language_models=[
-            synalinks.LanguageModel("ollama/llama3.2"),
-            synalinks.LanguageModel("ollama/mistral"),
-        ],
-        smart_language_model=synalinks.LanguageModel("openai/gpt-4o"),
+        panel_language_models=["ollama/llama3.2", "ollama/mistral"],
+        smart_language_model="openai/gpt-4o",
         agreement_threshold=0.2,
         instructions="Score 0.0–1.0 on factual correctness.",
     )
@@ -55,12 +53,12 @@ class JudgePanelProgram(Program):
     ```
 
     Args:
-        panel_language_models (list): The list of small-LM
-            `LanguageModel` instances forming the panel. Required,
-            non-empty.
-        smart_language_model (LanguageModel): The escalation language
-            model invoked when panelists disagree (or when the panel
-            collapses). Required.
+        panel_language_models (list): The panelists, each given as a
+            `LanguageModel`, a config dict, or a string identifier (e.g.
+            `"ollama/llama3.2"`). Required, non-empty.
+        smart_language_model: Escalation model used on disagreement. Same
+            forms as panelists (instance / dict / string identifier).
+            Required.
         agreement_threshold (float): Maximum allowed (max - min) panel
             score spread for the panel to be deemed "in agreement"
             (default 0.2).
@@ -97,6 +95,11 @@ class JudgePanelProgram(Program):
         if smart_language_model is None:
             raise ValueError("`smart_language_model` is required.")
 
+        # Resolve string / dict / instance identifiers up front, matching
+        # the pattern used inside synalinks (e.g. `ChainOfThought`).
+        panel_lms = [_get_lm(lm) for lm in panel_language_models]
+        smart_lm = _get_lm(smart_language_model)
+
         self.panel = [
             SelfCritique(
                 language_model=lm,
@@ -105,18 +108,18 @@ class JudgePanelProgram(Program):
                 instructions=instructions,
                 name=f"panelist_{i}_{self.name}",
             )
-            for i, lm in enumerate(panel_language_models)
+            for i, lm in enumerate(panel_lms)
         ]
         self.smart = SelfCritique(
-            language_model=smart_language_model,
+            language_model=smart_lm,
             prompt_template=prompt_template,
             examples=examples,
             instructions=instructions,
             name=f"smart_{self.name}",
         )
         self.agreement_threshold = float(agreement_threshold)
-        self.panel_language_models = panel_language_models
-        self.smart_language_model = smart_language_model
+        self.panel_language_models = panel_lms
+        self.smart_language_model = smart_lm
         self.prompt_template = prompt_template
         self.examples = examples
         self.instructions = instructions
@@ -223,11 +226,11 @@ class JudgePanel(ProgramAsJudge):
     program.compile(
         reward=JudgePanel(
             panel_language_models=[
-                synalinks.LanguageModel("ollama/llama3.2"),
-                synalinks.LanguageModel("ollama/mistral"),
-                synalinks.LanguageModel("ollama/qwen"),
+                "ollama/llama3.2",
+                "ollama/mistral",
+                "ollama/qwen",
             ],
-            smart_language_model=synalinks.LanguageModel("openai/gpt-4o"),
+            smart_language_model="openai/gpt-4o",
             agreement_threshold=0.2,
             instructions="Score 0.0–1.0 on factual correctness.",
         ),
@@ -235,10 +238,11 @@ class JudgePanel(ProgramAsJudge):
     ```
 
     Args:
-        panel_language_models (list): The list of small-LM
-            `LanguageModel` instances forming the panel. Required.
-        smart_language_model (LanguageModel): The escalation language
-            model invoked when panelists disagree. Required.
+        panel_language_models (list): The panelists, each given as a
+            `LanguageModel`, a config dict, or a string identifier
+            (e.g. `"ollama/llama3.2"`). Required.
+        smart_language_model: Escalation model used on disagreement. Same
+            forms as panelists. Required.
         agreement_threshold (float): Maximum allowed (max - min) panel
             score spread for the panel to be deemed "in agreement"
             (default 0.2).

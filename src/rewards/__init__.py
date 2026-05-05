@@ -7,10 +7,9 @@ Combines synalinks's built-in `Reward` subclasses (auto-discovered via
 (`JudgePanel`, `RecursiveLMAsJudge`) into a single `_REWARD_TYPES` map
 keyed by the reward's snake_case class name. `get(spec)` instantiates a
 reward from either a string name (`"exact_match"`) or a YAML-shaped dict;
-string `language_model:` / `sub_language_model:` / `smart_language_model:`
-/ `panel_language_models:` / `embedding_model:` values are auto-coerced
-into `synalinks.LanguageModel` / `synalinks.EmbeddingModel` instances so
-config files stay readable.
+string `language_model:` / `embedding_model:` values flow straight into
+the reward constructor — synalinks resolves them via
+`synalinks.language_models.get` / `synalinks.embedding_models.get`.
 """
 
 import inspect
@@ -69,9 +68,9 @@ def get(spec, **kwargs):
           ...
         ```
         Every key besides `name` is forwarded as a kwarg to the reward
-        constructor. `language_model` / `embedding_model` string values are
-        auto-resolved into `synalinks.LanguageModel` / `synalinks.EmbeddingModel`
-        instances so config files can stay simple.
+        constructor. String `language_model:` / `embedding_model:` values
+        pass through verbatim — synalinks resolves them into concrete
+        `LanguageModel` / `EmbeddingModel` instances on demand.
 
     Args:
         spec: Snake_case name or config dict (see above).
@@ -86,26 +85,6 @@ def get(spec, **kwargs):
         kwargs = {**spec, **kwargs}
     else:
         name = spec
-
-    if isinstance(kwargs.get("language_model"), str):
-        kwargs["language_model"] = synalinks.LanguageModel(model=kwargs["language_model"])
-    if isinstance(kwargs.get("sub_language_model"), str):
-        kwargs["sub_language_model"] = synalinks.LanguageModel(
-            model=kwargs["sub_language_model"]
-        )
-    if isinstance(kwargs.get("smart_language_model"), str):
-        kwargs["smart_language_model"] = synalinks.LanguageModel(
-            model=kwargs["smart_language_model"]
-        )
-    if isinstance(kwargs.get("panel_language_models"), list):
-        kwargs["panel_language_models"] = [
-            synalinks.LanguageModel(model=m) if isinstance(m, str) else m
-            for m in kwargs["panel_language_models"]
-        ]
-    if isinstance(kwargs.get("embedding_model"), str):
-        kwargs["embedding_model"] = synalinks.EmbeddingModel(
-            model=kwargs["embedding_model"]
-        )
 
     cls = _REWARD_TYPES.get(name)
     if cls is None:

@@ -1,8 +1,5 @@
 # License Apache 2.0: (c) 2026 Athena-Reply
 
-import jinja2
-import numpy as np
-import synalinks
 from datasets import load_dataset
 
 from src.datasets.dataset import Dataset
@@ -79,12 +76,9 @@ class HuggingFaceDataset(Dataset):
         output_template=None,
         batch_size=1,
         limit: int = None,
+        repeat: int = 1,
         **kwargs,
     ):
-        if input_data_model is None and input_schema is None:
-            input_data_model = synalinks.ChatMessages
-        if output_data_model is None and output_schema is None:
-            output_data_model = synalinks.ChatMessage
         super().__init__(
             input_data_model=input_data_model,
             input_schema=input_schema,
@@ -94,6 +88,7 @@ class HuggingFaceDataset(Dataset):
             output_template=output_template,
             batch_size=batch_size,
             limit=limit,
+            repeat=repeat,
         )
         self.path = path
         self.name = name
@@ -111,39 +106,12 @@ class HuggingFaceDataset(Dataset):
             **kwargs,
         )
 
-        env = jinja2.Environment(undefined=jinja2.StrictUndefined)
-        self._input_tmpl = env.from_string(input_template)
-        self._output_tmpl = env.from_string(output_template)
-
     def _iter_rows(self):
         if hasattr(self._dataset, "keys") and not self.split:
             for split_name in self._dataset.keys():
                 yield from self._dataset[split_name]
         else:
             yield from self._dataset
-
-    def __iter__(self):
-        x_buf, y_buf = [], []
-        seen = 0
-        for row in self._iter_rows():
-            if self.limit is not None and seen >= self.limit:
-                break
-            seen += 1
-            x = self._make_input(self._input_tmpl.render(**row))
-            y = self._make_target(self._output_tmpl.render(**row))
-            x_buf.append(x)
-            y_buf.append(y)
-            if len(x_buf) >= self.batch_size:
-                yield (
-                    np.array(x_buf, dtype="object"),
-                    np.array(y_buf, dtype="object"),
-                )
-                x_buf, y_buf = [], []
-        if x_buf:
-            yield (
-                np.array(x_buf, dtype="object"),
-                np.array(y_buf, dtype="object"),
-            )
 
     def __len__(self):
         if self.streaming and self.limit is None:
@@ -154,4 +122,4 @@ class HuggingFaceDataset(Dataset):
             num_rows = sum(len(self._dataset[s]) for s in self._dataset.keys())
         else:
             num_rows = len(self._dataset)
-        return (num_rows + self.batch_size - 1) // self.batch_size
+        return self._total_batches(num_rows)

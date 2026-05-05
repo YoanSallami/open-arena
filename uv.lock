@@ -3197,7 +3197,7 @@ requires-dist = [
     { name = "langsmith", specifier = ">=0.7.38" },
     { name = "opik", specifier = ">=2.0.20" },
     { name = "pyarrow", specifier = ">=23.0.1" },
-    { name = "synalinks", specifier = ">=0.8.5" },
+    { name = "synalinks", editable = "../synalinks" },
 ]
 provides-extras = ["deepeval"]
 
@@ -5410,8 +5410,7 @@ wheels = [
 
 [[package]]
 name = "synalinks"
-version = "0.8.5"
-source = { registry = "https://pypi.org/simple" }
+source = { editable = "../synalinks" }
 dependencies = [
     { name = "absl-py" },
     { name = "asyncio" },
@@ -5441,9 +5440,35 @@ dependencies = [
     { name = "synaops" },
     { name = "tenacity" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/58/08/f9af196003a2de45de18ed5d0a414b57449fa6371767925c49d6c9161c94/synalinks-0.8.5.tar.gz", hash = "sha256:dcb108905e26121d5ce7817cb30f25156e732994b6a9e117b1d0d72ad665053c", size = 374273 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/61/9b/3e93ca5b4c8c7ae8dff3f1f0482003e7f5df0f6c732043d9c1762159798f/synalinks-0.8.5-py3-none-any.whl", hash = "sha256:8ae9b147cc92efa221b4725ff535d6e146ee29f9a7c519a2c2229a84c1ccdb17", size = 490561 },
+
+[package.metadata]
+requires-dist = [
+    { name = "absl-py" },
+    { name = "asyncio" },
+    { name = "click" },
+    { name = "datasets" },
+    { name = "docstring-parser" },
+    { name = "duckdb" },
+    { name = "fastmcp", specifier = ">=3.2.0" },
+    { name = "graphviz" },
+    { name = "greenlet" },
+    { name = "inquirer" },
+    { name = "jinja2" },
+    { name = "jsonschema" },
+    { name = "litellm", specifier = ">=1.83.7" },
+    { name = "matplotlib" },
+    { name = "mcp" },
+    { name = "mlflow", specifier = ">=3.11.1" },
+    { name = "namex" },
+    { name = "numpy" },
+    { name = "optree" },
+    { name = "orjson" },
+    { name = "pydantic" },
+    { name = "pydantic-monty" },
+    { name = "pydotplus" },
+    { name = "rich" },
+    { name = "synaops", specifier = ">=0.2.0" },
+    { name = "tenacity" },
 ]
 
 [[package]]

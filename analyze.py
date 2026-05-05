@@ -1,20 +1,44 @@
 # License Apache 2.0: (c) 2026 Athena-Reply
 
-"""Analyze a finished sweep — for every candidate experiment-level reward,
-report best-model agreement and mean per-dataset Spearman correlation
-against the primary `reward` column.
+"""Analyze a finished sweep.
+
+Two outputs:
+
+* **Model selection** (stderr) — for each dataset, the best model under
+  the primary `reward` column plus the margin to the runner-up.
+* **Reward R&D** (stderr summary + stdout TSV) — for every candidate
+  experiment-level reward, report:
+    - `top1`      — fraction of usable datasets where the candidate's #1
+                    model matches the primary's #1
+    - `pairwise`  — fraction of (model_i, model_j) pairs across usable
+                    datasets where primary and candidate agree on which
+                    is the stronger model (a Kendall-style score; ties
+                    on the same side count as agreement, ties on only
+                    one side count as half)
+    - `sp_min` / `sp_med` / `sp_max`  — distribution of per-dataset
+                    Spearman ρ (primary rank vs candidate rank), instead
+                    of just the mean which hid catastrophic single-dataset
+                    failures
+    - `n_usable`  — number of datasets contributing to the stats (i.e.
+                    those with both primary and candidate scores for the
+                    same set of models)
+
+Plus a stderr disagreement breakdown listing the datasets where the
+candidate would have crowned a different #1 model.
+
+stdout shape (one row per candidate, drops into `results.tsv`):
+
+    <alias>\\t<top1>\\t<pairwise>\\t<sp_min>\\t<sp_med>\\t<sp_max>\\t<n_usable>
 
 Reads `.kt/last_run.tsv` (the long-format sidecar written by the sweep)
-by default; pass an alternate path as a positional arg. Output is one
-line per candidate, `<alias>\\t<agreement>\\t<spearman>`, formatted to
-drop straight into `results.tsv`.
+by default; pass an alternate path as a positional arg.
 """
 
 import csv
 import sys
 from collections import defaultdict
 from pathlib import Path
-from statistics import mean
+from statistics import median
 
 PRIMARY = "reward"
 
@@ -28,6 +52,128 @@ def _spearman(a: dict[str, float], b: dict[str, float]) -> float:
     rank_b = {m: r for r, m in enumerate(sorted(keys, key=lambda m: b[m]))}
     d2 = sum((rank_a[m] - rank_b[m]) ** 2 for m in keys)
     return 1 - 6 * d2 / (n * (n * n - 1))
+
+
+def _pairwise_agreement(a: dict[str, float], b: dict[str, float]) -> float:
+    """Kendall-style pairwise agreement between two metric scorings.
+
+    For every (m_i, m_j) model pair, count whether the two metrics agree
+    on which is better. Same direction (or both tied) → 1; one tied and
+    one decisive → 0.5; actively inverted → 0. Returns the average. With
+    `n < 2` models, returns 1.0 (vacuously consistent).
+    """
+    models = list(a)
+    n = len(models)
+    if n < 2:
+        return 1.0
+    total = n * (n - 1) // 2
+    score = 0.0
+    for i in range(n):
+        for j in range(i + 1, n):
+            mi, mj = models[i], models[j]
+            sa = (a[mi] > a[mj]) - (a[mi] < a[mj])
+            sb = (b[mi] > b[mj]) - (b[mi] < b[mj])
+            if sa == sb:
+                score += 1.0
+            elif sa == 0 or sb == 0:
+                score += 0.5
+    return score / total
+
+
+def _best_per_dataset(cols, datasets):
+    """`{dataset: (best_model, best_score, margin_or_None)}` under primary."""
+    out = {}
+    for d in datasets:
+        prim = cols.get((d, PRIMARY))
+        if not prim:
+            continue
+        ranked = sorted(prim.items(), key=lambda kv: -kv[1])
+        best_model, best_score = ranked[0]
+        margin = (best_score - ranked[1][1]) if len(ranked) >= 2 else None
+        out[d] = (best_model, best_score, margin)
+    return out
+
+
+def _print_best_per_dataset(best, datasets):
+    """Render the model-selection summary to stderr."""
+    sys.stderr.write(f"best model per dataset (primary={PRIMARY!r}):\n")
+    if not best:
+        sys.stderr.write(f"  (no datasets with primary {PRIMARY!r} scores)\n\n")
+        return
+    name_w = max(len(d) for d in datasets)
+    model_w = max(len(m) for m, _, _ in best.values())
+    for d in datasets:
+        if d not in best:
+            sys.stderr.write(f"  {d.ljust(name_w)}  (no successful trials)\n")
+            continue
+        model, score, margin = best[d]
+        margin_s = f"Δ +{margin:.4f}" if margin is not None else "(only model)"
+        sys.stderr.write(
+            f"  {d.ljust(name_w)}  {model.ljust(model_w)}  {score:.4f}  {margin_s}\n"
+        )
+    sys.stderr.write("\n")
+
+
+def _candidate_stats(cols, datasets, cand):
+    """Compute (top1, pairwise, sp_min, sp_med, sp_max, n_usable, disagreements).
+
+    `disagreements` is a list of `(dataset, primary_winner, candidate_winner)`
+    tuples for the datasets where the two metrics' #1 models differ.
+    """
+    top1_hits = 0
+    pairwise_per_ds: list[float] = []
+    sps: list[float] = []
+    disagreements: list[tuple[str, str, str]] = []
+
+    for d in datasets:
+        prim = cols.get((d, PRIMARY))
+        ccol = cols.get((d, cand))
+        if not prim or not ccol or set(prim) != set(ccol):
+            continue
+        pwin = max(prim, key=prim.get)
+        cwin = max(ccol, key=ccol.get)
+        if pwin == cwin:
+            top1_hits += 1
+        else:
+            disagreements.append((d, pwin, cwin))
+        pairwise_per_ds.append(_pairwise_agreement(prim, ccol))
+        sps.append(_spearman(prim, ccol))
+
+    n = len(sps)
+    if n == 0:
+        return (0.0, 0.0, 0.0, 0.0, 0.0, 0, [])
+    pairwise = sum(pairwise_per_ds) / n
+    return (top1_hits / n, pairwise, min(sps), median(sps), max(sps), n, disagreements)
+
+
+def _print_reward_analysis(stats):
+    """Render the per-candidate analysis table + disagreement list to stderr."""
+    if not stats:
+        return
+    name_w = max(len("candidate"), max(len(s[0]) for s in stats))
+    sys.stderr.write(f"reward analysis vs primary={PRIMARY!r}:\n")
+    sys.stderr.write(
+        f"  {'candidate'.ljust(name_w)}  {'top1':>6}  {'pairwise':>8}  "
+        f"{'ρ_min':>7}  {'ρ_med':>7}  {'ρ_max':>7}  {'n':>3}\n"
+    )
+    for alias, top1, pw, sp_min, sp_med, sp_max, n, _diss in stats:
+        sys.stderr.write(
+            f"  {alias.ljust(name_w)}  {top1:6.3f}  {pw:8.3f}  "
+            f"{sp_min:+7.3f}  {sp_med:+7.3f}  {sp_max:+7.3f}  {n:>3}\n"
+        )
+    sys.stderr.write("\n")
+
+    diss = [(s[0], s[7]) for s in stats if s[7]]
+    if diss:
+        sys.stderr.write(
+            "disagreements (datasets where the candidate's #1 differs from primary's):\n"
+        )
+        for cand, ds_list in diss:
+            for d, pwin, cwin in ds_list:
+                sys.stderr.write(
+                    f"  {cand}: {d} — primary→{pwin}, candidate→{cwin}\n"
+                )
+        sys.stderr.write("\n")
 
 
 def main(path: Path) -> None:
@@ -44,27 +190,26 @@ def main(path: Path) -> None:
     datasets = sorted({d for d, _ in cols})
     candidates = sorted({m for _, m in cols} - {PRIMARY})
 
+    # Model selection: always emit, even with zero candidates — picking the
+    # right model per dataset doesn't depend on having extra rewards to audit.
+    _print_best_per_dataset(_best_per_dataset(cols, datasets), datasets)
+
     if not candidates:
         sys.stderr.write(
             "analyze: no candidate metrics in TSV — add an entry to "
-            "`experiments.rewards` in config.yaml.\n"
+            "`experiments.rewards` in config.yaml to enable reward analysis.\n"
         )
-        sys.exit(1)
+        return
 
-    for cand in candidates:
-        hits = 0
-        sps: list[float] = []
-        for d in datasets:
-            prim = cols.get((d, PRIMARY))
-            ccol = cols.get((d, cand))
-            if not prim or not ccol or set(prim) != set(ccol):
-                continue
-            if max(prim, key=prim.get) == max(ccol, key=ccol.get):
-                hits += 1
-            sps.append(_spearman(prim, ccol))
-        agreement = hits / len(datasets) if datasets else 0.0
-        spearman = mean(sps) if sps else 0.0
-        print(f"{cand}\t{agreement:.6f}\t{spearman:.6f}")
+    stats = [(c, *_candidate_stats(cols, datasets, c)) for c in candidates]
+    _print_reward_analysis(stats)
+
+    # stdout TSV: one journal-friendly row per candidate.
+    for alias, top1, pw, sp_min, sp_med, sp_max, n, _diss in stats:
+        print(
+            f"{alias}\t{top1:.6f}\t{pw:.6f}\t"
+            f"{sp_min:.6f}\t{sp_med:.6f}\t{sp_max:.6f}\t{n}"
+        )
 
 
 if __name__ == "__main__":
