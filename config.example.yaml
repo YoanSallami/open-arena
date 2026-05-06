@@ -26,6 +26,32 @@
 # in a row before moving on. Setting `repeat == batch_size` makes every batch
 # a group of N rollouts of the same prompt — the GRPO-style RL layout where
 # reward statistics are computed across rollouts of one input.
+#
+# `agent:` (per-dataset, optional, mutually exclusive with `generator:`)
+# turns the trial into a `synalinks.FunctionCallingAgent` driven by MCP
+# tools instead of a single Generator call. Servers are declared once
+# under the top-level `mcp_servers:` registry and referenced by name from
+# each agentic dataset's `agent.mcp_servers:` list.
+
+# --- MCP server registry ----------------------------------------------------
+# Top-level map of {server_name: connection_dict}. Each connection follows
+# one of the synalinks `Connection` TypedDicts — `stdio`,
+# `streamable_http`, `sse`, or `websocket` — discriminated by `transport:`.
+# Servers declared here are not started automatically; they must already
+# be reachable when an agentic trial runs. Datasets opt in via
+# `agent.mcp_servers: [name1, name2]`.
+#
+# Commented out: this section is dormant unless at least one dataset
+# references it. Uncomment alongside the matching dataset block below.
+# mcp_servers:
+#   math:
+#     transport: stdio
+#     command: python
+#     args: ["/abs/path/to/math_server.py"]
+#   weather:
+#     transport: streamable_http
+#     url: http://localhost:8000/mcp
+
 datasets:
 
   # MMLU multiple-choice via HuggingFace, streamed, capped at 50 items.
@@ -425,6 +451,57 @@ datasets:
     reward:
       name: exact_match
       in_mask: [content]
+
+  # Agentic dataset — uses a `synalinks.FunctionCallingAgent` driven by MCP
+  # tools instead of a single Generator call. The agent runs its own
+  # call-tool / observe / decide loop per row (capped by `max_iterations`)
+  # and returns either a free-form chat answer (no output_template) or a
+  # structured final answer (output_template + matching schema/data_model).
+  #
+  # `agent:` and `generator:` are mutually exclusive on a dataset.
+  # Commented out by default — to enable: (1) uncomment this block,
+  # (2) uncomment the matching `mcp_servers:` block at the top of the
+  # file, and (3) add `agentic_math_eval` to `experiments.datasets:`.
+  # agentic_math_eval:
+  #   type: folder
+  #   path: data/agent_cases
+  #   pattern: "*.json"
+  #   batch_size: 1
+  #   input_template: |
+  #     {"messages":[{"role":"user","content": {{ question | tojson }}}]}
+  #   # No output_template → inputs-only, agent returns a free-form chat answer.
+  #   # Add an output_template + output_schema if you want structured answers.
+  #   agent:
+  #     type: function_calling          # only supported value
+  #     mcp_servers: [math]             # references top-level `mcp_servers:` registry
+  #     max_iterations: 5
+  #     autonomous: true
+  #     use_chain_of_thought: true
+  #     temperature: 0.0
+  #     instructions: |
+  #       Solve the user's problem by calling the available tools. Reason
+  #       step by step, call tools when you need them, and stop when you
+  #       have enough information to answer.
+  #     # Any other FunctionCallingAgent kwarg (final_instructions,
+  #     # use_inputs_schema, examples, prompt_template, ...) can also be
+  #     # set here. `language_model`, `tools`, `data_model`, `schema` are
+  #     # set automatically and rejected if also present.
+  #   reward:
+  #     # Idiomatic for the inputs-only autonomous agent above: lm_as_judge
+  #     # scores the final assistant content on its own merits (y_true=None).
+  #     name: lm_as_judge
+  #     language_model: ollama/llama3.2
+  #     instructions: |
+  #       Score 0.0–1.0 on whether the agent solved the user's problem,
+  #       used the available tools sensibly, and stopped when it had
+  #       enough information.
+  #     in_mask: [content]
+  #     # For DeepEval `ToolCorrectnessMetric` you need top-level `tool_calls`
+  #     # on y_pred (the default mask is `recursive=False`). That requires an
+  #     # `output_template` + `output_schema` on the dataset that surfaces
+  #     # tool_calls at the root, plus a y_true with the gold tool calls.
+  #     # Without that wiring the default mask returns no fields and the
+  #     # reward fails-fast at runtime.
 
   # Folder dataset — one record per file. Use this for hand-curated test cases
   # checked into the repo, or for ad-hoc evaluations where each example lives

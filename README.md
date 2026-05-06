@@ -14,7 +14,9 @@ Plugs into every major LM provider — OpenAI, Anthropic, Gemini,
 Mistral, Cohere, Groq, Together, DeepSeek, xAI, OpenRouter, Azure,
 AWS Bedrock, Doubleword, plus self-hosted Ollama / vLLM — and pulls
 eval datasets from Langfuse, LangSmith, Opik, Arize Phoenix, and
-Braintrust (or any HF / local / folder source).
+Braintrust (or any HF / local / folder source). Each dataset can run
+as a single-shot `Generator` eval or as a multi-step
+`FunctionCallingAgent` driven by MCP tools.
 
 ```
 $ arena -c config.yaml
@@ -149,6 +151,51 @@ outputs).
 
 `in_mask: [content]` on every reward keeps the comparison restricted to
 the `content` field of the chat message, ignoring `role` and friends.
+
+### Agent mode (function-calling + MCP)
+
+A dataset that declares an `agent:` block runs as a multi-step
+`FunctionCallingAgent` instead of a single Generator call.
+MCP servers are declared once in a top-level `mcp_servers:` registry
+and referenced by name from each agentic dataset:
+
+```yaml
+mcp_servers:
+  math:
+    transport: stdio
+    command: python
+    args: ["/abs/path/to/math_server.py"]
+  weather:
+    transport: streamable_http
+    url: http://localhost:8000/mcp
+
+datasets:
+  agentic_math_eval:
+    type: folder
+    path: data/agent_cases
+    pattern: "*.json"
+    batch_size: 1
+    input_template: |
+      {"messages":[{"role":"user","content":{{ question | tojson }}}]}
+    agent:
+      type: function_calling          # only supported value
+      mcp_servers: [math]             # references the registry above
+      max_iterations: 5
+      autonomous: true
+      use_chain_of_thought: true
+      instructions: "Solve step by step using the available tools."
+    reward:
+      name: deep_eval
+      metric: ToolCorrectnessMetric
+```
+
+`agent:` and `generator:` are mutually exclusive on a dataset. Tools
+are loaded from the listed MCP servers at trial-build time via
+`MultiServerMCPClient.get_tools()` so a misconfigured server fails the
+trial fast rather than producing a tool-less agent. Any
+`FunctionCallingAgent` constructor kwarg can be set under `agent:`
+except `language_model`/`tools`/`data_model`/`schema`, which are wired
+from the model and the dataset.
 
 ### Experiment-level rewards
 

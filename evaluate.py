@@ -2,11 +2,14 @@
 
 """Run the open-arena evaluation sweep.
 
-The program graph lives in `program.py` (`build_program()`) so it can
-be edited in place — swap `Generator` for an agent, splice in a
-retriever, layer a critique, etc., without touching the rest of the
-trial-runner glue. This is the file `arena` (the console script)
-executes; `un run evaluate.py` is the equivalent direct invocation.
+The program graph lives in `program.py`. Two entry points there:
+`build_program()` (Generator-based, used when a dataset declares
+`generator:`) and `build_agent()` (FunctionCallingAgent + MCP tools,
+used when a dataset declares `agent:`). The two are mutually
+exclusive per dataset; this file dispatches between them based on
+which block is set in YAML. This is the file `arena` (the console
+script) executes; `un run evaluate.py` is the equivalent direct
+invocation.
 
 Run with:
 
@@ -27,7 +30,7 @@ import click
 import keras_tuner as kt
 import yaml
 
-from program import build_program
+from program import build_agent, build_program
 from src.datasets import load_dataset_from_yaml
 from src.rewards import get as get_reward
 
@@ -54,6 +57,7 @@ class OpenArenaTuner(kt.engine.base_tuner.BaseTuner):
         trial,
         datasets,
         generator_kwargs_by_ds,
+        agent_config_by_ds,
         rewards_by_ds,
         experiment_rewards,
         verbose=0,
@@ -69,10 +73,14 @@ class OpenArenaTuner(kt.engine.base_tuner.BaseTuner):
         model_id = trial.hyperparameters.get("language_model")
         ds_name = trial.hyperparameters.get("dataset")
         gen_kwargs = generator_kwargs_by_ds.get(ds_name, {})
+        agent_cfg = agent_config_by_ds.get(ds_name)
         ds = datasets[ds_name]
 
         async def _eval(reward):
-            program = await build_program(model_id, ds, gen_kwargs, reward)
+            if agent_cfg is not None:
+                program = await build_agent(model_id, ds, agent_cfg, reward)
+            else:
+                program = await build_program(model_id, ds, gen_kwargs, reward)
             return await program.evaluate(x=ds, verbose=verbose)
 
         # Primary first: any failure here fails the trial outright (no fallback,
@@ -94,6 +102,43 @@ class OpenArenaTuner(kt.engine.base_tuner.BaseTuner):
                     stacklevel=2,
                 )
         return result
+
+
+def _resolve_agent_config(agent_block, mcp_registry, config_path, ds_name):
+    """Resolve a per-dataset `agent:` block against the top-level `mcp_servers:`
+    registry. The block's `mcp_servers:` is a list of names; this returns the
+    same block with that list replaced by a `{name: connection_dict}` map ready
+    to hand to `synalinks.MultiServerMCPClient(connections=...)`.
+    """
+    if not isinstance(agent_block, dict):
+        raise ValueError(
+            f"{config_path}: dataset {ds_name!r}: `agent:` must be a mapping; got "
+            f"{type(agent_block).__name__}."
+        )
+    block = dict(agent_block)
+    refs = block.get("mcp_servers")
+    if not refs:
+        raise ValueError(
+            f"{config_path}: dataset {ds_name!r}: `agent.mcp_servers:` is required "
+            f"and must list at least one server name from the top-level "
+            f"`mcp_servers:` registry."
+        )
+    if not isinstance(refs, list):
+        raise ValueError(
+            f"{config_path}: dataset {ds_name!r}: `agent.mcp_servers:` must be a "
+            f"list of server names referencing the top-level `mcp_servers:` "
+            f"registry; got {type(refs).__name__}."
+        )
+    missing = [name for name in refs if name not in mcp_registry]
+    if missing:
+        available = sorted(mcp_registry) or ["(empty registry)"]
+        raise ValueError(
+            f"{config_path}: dataset {ds_name!r}: `agent.mcp_servers:` references "
+            f"unknown server(s) {missing}. Declared in top-level `mcp_servers:`: "
+            f"{available}."
+        )
+    block["mcp_servers"] = {name: dict(mcp_registry[name]) for name in refs}
+    return block
 
 
 def _parse_experiment_rewards(specs):
@@ -299,12 +344,25 @@ def run_sweep(
     dataset_names = config["experiments"].get("datasets") or [config["default"]]
 
     datasets = {n: load_dataset_from_yaml(config_path, name=n) for n in dataset_names}
-    generator_kwargs_by_ds = {
-        n: config["datasets"][n].get("generator", {}) for n in dataset_names
-    }
+    mcp_registry = config.get("mcp_servers", {}) or {}
+    generator_kwargs_by_ds = {}
+    agent_config_by_ds = {}
     rewards_by_ds = {}
     for n in dataset_names:
-        spec = config["datasets"][n].get("reward")
+        ds_entry = config["datasets"][n]
+        gen_block = ds_entry.get("generator")
+        agent_block = ds_entry.get("agent")
+        if gen_block is not None and agent_block is not None:
+            raise ValueError(
+                f"{config_path}: dataset {n!r}: `generator:` and `agent:` are "
+                f"mutually exclusive — pick one."
+            )
+        generator_kwargs_by_ds[n] = gen_block or {}
+        if agent_block is not None:
+            agent_config_by_ds[n] = _resolve_agent_config(
+                agent_block, mcp_registry, config_path, n
+            )
+        spec = ds_entry.get("reward")
         if spec is None:
             raise ValueError(f"{config_path}: dataset {n!r} is missing a `reward:` field.")
         rewards_by_ds[n] = get_reward(spec)
@@ -338,6 +396,7 @@ def run_sweep(
     tuner.search(
         datasets,
         generator_kwargs_by_ds,
+        agent_config_by_ds,
         rewards_by_ds,
         experiment_rewards,
         verbose=verbose,
