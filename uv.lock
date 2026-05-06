@@ -3172,11 +3172,15 @@ dependencies = [
     { name = "braintrust" },
     { name = "click" },
     { name = "datasets" },
+    { name = "jinja2" },
     { name = "keras-tuner" },
     { name = "langfuse" },
     { name = "langsmith" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "opik" },
     { name = "pyarrow" },
+    { name = "pyyaml" },
     { name = "synalinks" },
 ]
 
@@ -3192,11 +3196,14 @@ requires-dist = [
     { name = "click", specifier = ">=8.1.8" },
     { name = "datasets", specifier = ">=4.8.5" },
     { name = "deepeval", marker = "extra == 'deepeval'", specifier = ">=2.0.0" },
+    { name = "jinja2", specifier = ">=3.1" },
     { name = "keras-tuner", specifier = ">=1.4.8" },
     { name = "langfuse", specifier = ">=4.5.1" },
     { name = "langsmith", specifier = ">=0.7.38" },
+    { name = "numpy", specifier = ">=2.0" },
     { name = "opik", specifier = ">=2.0.20" },
     { name = "pyarrow", specifier = ">=23.0.1" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "synalinks", specifier = ">=0.8.11" },
 ]
 provides-extras = ["deepeval"]

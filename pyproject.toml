@@ -23,11 +23,18 @@ dependencies = [
     "braintrust>=0.18.0",
     "click>=8.1.8",
     "datasets>=4.8.5",
+    # Direct imports in src/datasets/dataset.py + evaluate.py — declared
+    # explicitly so installs don't rely on these being pulled in
+    # transitively (today they ship via synalinks / datasets / langchain,
+    # but a future minor version bump elsewhere could drop them).
+    "jinja2>=3.1",
     "keras-tuner>=1.4.8",
     "langfuse>=4.5.1",
     "langsmith>=0.7.38",
+    "numpy>=2.0",
     "opik>=2.0.20",
     "pyarrow>=23.0.1",
+    "pyyaml>=6.0",
     "synalinks>=0.8.11",
 ]
 
