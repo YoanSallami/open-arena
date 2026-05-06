@@ -592,3 +592,133 @@ experiments:
       instructions: |
         Score 0.0–1.0 on whether the response is concise — only the answer
         requested, with no extra explanation, padding, or preamble.
+
+    # --- DeepEval rewards ---------------------------------------------------
+    # `deep_eval` wraps any class from `deepeval.metrics`. Install the extra
+    # to enable: `uv sync --extra deepeval`. Each metric class declares which
+    # `LLMTestCase` slots it consumes (introspected from `_required_params`);
+    # the reward fails fast at YAML-load time if a required slot has no
+    # config and no default.
+    #
+    # Shape: each `testcase.<slot>` entry routes one slot from y_true or
+    # y_pred via its own mask. Slots and their defaults (used when omitted):
+    #   - input             → y_pred.messages, extract: chat_user
+    #   - actual_output     → y_pred.content,  extract: scalar
+    #   - expected_output   → y_true.content,  extract: scalar
+    #   - context           → y_true.context,           extract: list
+    #   - retrieval_context → y_pred.retrieval_context, extract: list
+    #   - tools_called      → y_pred.tool_calls,        extract: list
+    #   - expected_tools    → y_true.tool_calls,        extract: list
+    # Supply a `testcase:` block to override any default (e.g. point a slot
+    # at a different field, switch sides, or change extraction mode).
+    # Commented out by default — uncomment after `uv sync --extra deepeval`.
+
+    # GEval — generic LM-judge with custom criteria. Slots come from
+    # `evaluation_params`. The most flexible DeepEval metric.
+    # - name: deep_eval
+    #   alias: deep_eval_correctness
+    #   metric: GEval
+    #   metric_kwargs:
+    #     name: Correctness
+    #     criteria: |
+    #       Determine whether the actual output matches the expected output
+    #       in meaning, ignoring formatting differences.
+    #     evaluation_params: [input, actual_output, expected_output]
+    #     model: gpt-4o
+    #     threshold: 0.5
+    #   # `testcase:` omitted → defaults route input from y_pred.messages,
+    #   # actual_output from y_pred.content, expected_output from y_true.content.
+
+    # AnswerRelevancyMetric — slots: [input, actual_output]. Same slot set
+    # as BiasMetric, ToxicityMetric, SummarizationMetric,
+    # PromptAlignmentMetric, PIILeakageMetric, NonAdviceMetric,
+    # MisuseMetric, RoleViolationMetric, JsonCorrectnessMetric,
+    # TaskCompletionMetric — swap `metric:` for any of those.
+    # - name: deep_eval
+    #   alias: deep_eval_relevancy
+    #   metric: AnswerRelevancyMetric
+    #   metric_kwargs:
+    #     model: gpt-4o
+    #     threshold: 0.5
+
+    # FaithfulnessMetric — RAG. Slots: [input, actual_output, retrieval_context].
+    # Requires the dataset's `output_template` to expose `retrieval_context`
+    # on y_pred (e.g. via a Generator that returns retrieved chunks).
+    # - name: deep_eval
+    #   alias: deep_eval_faithfulness
+    #   metric: FaithfulnessMetric
+    #   metric_kwargs:
+    #     model: gpt-4o
+    #     threshold: 0.7
+    #   testcase:
+    #     retrieval_context:
+    #       from: y_pred
+    #       in_mask: [retrieved_chunks]   # rename to match your data model's field
+    #       extract: list
+
+    # ContextualPrecisionMetric — RAG. Slots: [input, retrieval_context, expected_output].
+    # ContextualRecallMetric has the same slot set — swap `metric:`.
+    # - name: deep_eval
+    #   alias: deep_eval_context_precision
+    #   metric: ContextualPrecisionMetric
+    #   metric_kwargs:
+    #     model: gpt-4o
+    #     threshold: 0.7
+    #   testcase:
+    #     retrieval_context: {from: y_pred, in_mask: [retrieved_chunks], extract: list}
+    #     expected_output:   {from: y_true, in_mask: [content]}
+
+    # ContextualRelevancyMetric — RAG. Slots: [input, retrieval_context].
+    # Judges retrieval quality without needing a gold answer.
+    # - name: deep_eval
+    #   alias: deep_eval_context_relevancy
+    #   metric: ContextualRelevancyMetric
+    #   metric_kwargs:
+    #     model: gpt-4o
+    #     threshold: 0.7
+    #   testcase:
+    #     retrieval_context: {from: y_pred, in_mask: [retrieved_chunks], extract: list}
+
+    # HallucinationMetric — slots: [input, actual_output, context].
+    # `context` is the GROUND TRUTH the answer is checked against (note: this
+    # is `context`, not `retrieval_context` — distinct DeepEval slots).
+    # - name: deep_eval
+    #   alias: deep_eval_hallucination
+    #   metric: HallucinationMetric
+    #   metric_kwargs:
+    #     model: gpt-4o
+    #     threshold: 0.5            # lower-is-better — DeepEval inverts internally
+    #   testcase:
+    #     context: {from: y_true, in_mask: [reference_text], extract: list}
+
+    # ToolCorrectnessMetric — agents. Slots: [input, tools_called, expected_tools].
+    # Requires y_pred to expose `tool_calls` (synalinks ChatMessage default)
+    # and y_true to carry the gold tool calls.
+    # - name: deep_eval
+    #   alias: deep_eval_tool_correctness
+    #   metric: ToolCorrectnessMetric
+    #   metric_kwargs:
+    #     threshold: 1.0            # exact match by default
+    #   # Defaults already point tools_called → y_pred.tool_calls and
+    #   # expected_tools → y_true.tool_calls.
+
+    # ArgumentCorrectnessMetric — agents. Slots: [input, tools_called].
+    # Judges whether tool arguments are well-formed for the input prompt.
+    # - name: deep_eval
+    #   alias: deep_eval_arg_correctness
+    #   metric: ArgumentCorrectnessMetric
+    #   metric_kwargs:
+    #     model: gpt-4o
+    #     threshold: 0.7
+
+    # ExactMatchMetric — slots: [input, actual_output, expected_output].
+    # Native DeepEval string match (vs `synalinks.exact_match` which compares
+    # the whole JSON). Use when you want DeepEval's normalization behavior.
+    # - name: deep_eval
+    #   alias: deep_eval_exact_match
+    #   metric: ExactMatchMetric
+
+    # Any DeepEval metric not listed above follows the same recipe: read its
+    # `_required_params` (or `evaluation_params` for GEval/DAG-style metrics),
+    # then fill the matching slots in `testcase:`. The reward will refuse to
+    # construct if a required slot has no source.
