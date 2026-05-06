@@ -15,12 +15,19 @@ catching the cases where the small judges genuinely diverge.
 
 import asyncio
 
+import synalinks
 from synalinks.src import ops
 from synalinks.src.modules import SelfCritique
 from synalinks.src.modules.language_models import get as _get_lm
+from synalinks.src.modules.ttc.self_critique import CritiqueWithReward
 from synalinks.src.programs import Program
 from synalinks.src.rewards.reward_wrappers import ProgramAsJudge
 from synalinks.src.saving import serialization_lib
+
+# `CritiqueWithReward` is the synalinks-canonical judge-output schema and
+# what `SelfCritique` (each panelist) already produces on the success path.
+# Reusing it for the empty-prediction sentinel keeps both paths
+# schema-aligned and inherits Score-enum [0, 1] enforcement for free.
 
 
 class JudgePanelProgram(Program):
@@ -131,7 +138,14 @@ class JudgePanelProgram(Program):
             raise ValueError("The inputs of the program should have a length of 2.")
         y_true, y_pred = inputs
         if not y_pred:
-            return 0.0
+            # ProgramAsJudge.call reads `result.get("reward", 0.0)` — return a
+            # CritiqueWithReward (matching what each SelfCritique panelist
+            # produces on the success path) so the wrapper's `.get()` call
+            # doesn't crash on a bare float.
+            return CritiqueWithReward(
+                critique="empty prediction — nothing to judge",
+                reward=synalinks.Score.VERY_BAD,
+            )
 
         if y_true:
             y_true = await ops.prefix(y_true, prefix="gold", name="gold_y_true")

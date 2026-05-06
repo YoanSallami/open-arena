@@ -23,20 +23,16 @@ from synalinks.src.modules.agents.recursive_language_model_agent import (
     get_default_instructions as _get_rlm_default_instructions,
 )
 from synalinks.src.modules.language_models import get as _get_lm
+from synalinks.src.modules.ttc.self_critique import CritiqueWithReward
 from synalinks.src.programs import Program
 from synalinks.src.rewards.reward_wrappers import ProgramAsJudge
 from synalinks.src.saving import serialization_lib
 
-
-class JudgmentOutput(synalinks.DataModel):
-    """Structured output the RLM judge submits.
-
-    `ProgramAsJudge` reads `reward`; `critique` is for the agent's own
-    reasoning and shows up in trajectory inspection / logs.
-    """
-
-    critique: str
-    reward: float
+# `CritiqueWithReward` is the synalinks-canonical judge-output schema
+# (`critique: str` + `reward: synalinks.Score`). Reusing it gives schema-
+# level [0, 1] enforcement via the `Score` enum (the LM is forced via
+# structured output to pick one of `Score`'s 11 buckets) instead of
+# accepting any unbounded float.
 
 
 _DEFAULT_JUDGE_TASK = """\
@@ -52,9 +48,10 @@ which case you're in.
 Inspect with code, use `llm_query` only when semantic comparison or
 judgment on a specific field is actually needed (a Python equality check
 is fine for short literal answers), and submit
-`{"critique": <one-or-two sentences>, "reward": <float in [0.0, 1.0]>}`
-where 1.0 is a perfect / excellent answer and 0.0 is wrong / poor. Partial
-credit is fine when the prediction is close but not exact.\
+`{"critique": <one-or-two sentences>, "reward": <one of 0.0, 0.1, 0.2,
+0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0>}` where 1.0 is a perfect /
+excellent answer and 0.0 is wrong / poor. Partial credit is fine when
+the prediction is close but not exact.\
 """
 
 
@@ -79,7 +76,7 @@ class RecursiveLMAsJudgeProgram(Program):
 
     Takes `[y_true, y_pred]`, prefixes the gold side with `gold_`, concats
     the two into a single structured input, and dispatches to a
-    `RecursiveLanguageModelAgent` whose output schema is `JudgmentOutput`
+    `RecursiveLanguageModelAgent` whose output schema is `CritiqueWithReward`
     (so it has the `reward` field that `ProgramAsJudge` reads). When
     `y_true` is missing, the prediction is judged on its own merits.
 
@@ -160,7 +157,7 @@ class RecursiveLMAsJudgeProgram(Program):
             _get_lm(sub_language_model) if sub_language_model is not None else language_model
         )
         self.judge = RecursiveLanguageModelAgent(
-            data_model=JudgmentOutput,
+            data_model=CritiqueWithReward,
             language_model=language_model,
             sub_language_model=sub_language_model,
             prompt_template=prompt_template,
@@ -192,7 +189,13 @@ class RecursiveLMAsJudgeProgram(Program):
             raise ValueError("The inputs of the program should have a length of 2.")
         y_true, y_pred = inputs
         if not y_pred:
-            return 0.0
+            # ProgramAsJudge.call reads `result.get("reward", 0.0)` — return a
+            # CritiqueWithReward-shaped object (matching the success path) so
+            # the wrapper's `.get()` call doesn't crash on a bare float.
+            return CritiqueWithReward(
+                critique="empty prediction — nothing to judge",
+                reward=synalinks.Score.VERY_BAD,
+            )
         if y_true:
             y_true = await ops.prefix(y_true, prefix="gold", name="gold_y_true")
             return await self.judge(
