@@ -117,37 +117,51 @@ def _pairwise_agreement(a: dict[str, float], b: dict[str, float]) -> float:
     return score / total
 
 
-def _top_set(scores: dict[str, float]) -> frozenset[str]:
-    """Models tied at `max(scores.values())`."""
-    top = max(scores.values())
+def _top_set(scores: dict[str, float], direction: str = "max") -> frozenset[str]:
+    """Models tied at the best score per `direction` (`'max'` or `'min'`)."""
+    pick = max if direction == "max" else min
+    top = pick(scores.values())
     return frozenset(m for m, s in scores.items() if s == top)
 
 
-def _best_per_dataset(cols, datasets):
+def _best_per_dataset(cols, datasets, directions=None):
     """`{dataset: (best_models, best_score, margin_or_None)}` under primary.
 
-    `best_models` is a tuple of all models tied at the top score (one entry
-    when there's a unique winner). `margin` is the gap to the next
-    *distinct* score, or `None` when every model has the same score.
+    `best_models` is a tuple of all models tied at the best score for that
+    dataset's `direction` (default `'max'`); pass `directions={ds: 'min'}`
+    to flip per-dataset for loss-style primaries. `margin` is the gap to
+    the next *distinct* score in the right direction, or `None` when every
+    model has the same score.
     """
+    directions = directions or {}
     out = {}
     for d in datasets:
         prim = cols.get((d, PRIMARY))
         if not prim:
             continue
-        ranked = sorted(prim.items(), key=lambda kv: -kv[1])
+        direction = directions.get(d, "max")
+        # Sort so ranked[0] is the best per direction.
+        sign = -1 if direction == "max" else 1
+        ranked = sorted(prim.items(), key=lambda kv: sign * kv[1])
         best_score = ranked[0][1]
         best_models = tuple(m for m, s in ranked if s == best_score)
-        next_distinct = next(
-            (s for _, s in ranked if s < best_score), None
-        )
-        margin = (best_score - next_distinct) if next_distinct is not None else None
+        if direction == "max":
+            next_distinct = next((s for _, s in ranked if s < best_score), None)
+            margin = (best_score - next_distinct) if next_distinct is not None else None
+        else:
+            next_distinct = next((s for _, s in ranked if s > best_score), None)
+            margin = (next_distinct - best_score) if next_distinct is not None else None
         out[d] = (best_models, best_score, margin)
     return out
 
 
-def _print_best_per_dataset(best, datasets):
-    """Render the model-selection summary to stderr."""
+def _print_best_per_dataset(best, datasets, directions=None):
+    """Render the model-selection summary to stderr.
+
+    Annotates `(min)` next to datasets whose primary `reward.direction:` is
+    `'min'` so a reader can tell at a glance which row is loss-style.
+    """
+    directions = directions or {}
     sys.stderr.write(f"best model per dataset (primary={PRIMARY!r}):\n")
     if not best:
         sys.stderr.write(f"  (no datasets with primary {PRIMARY!r} scores)\n\n")
@@ -160,30 +174,40 @@ def _print_best_per_dataset(best, datasets):
             continue
         models, score, margin = best[d]
         models_s = ", ".join(models)
+        is_min = directions.get(d, "max") == "min"
         if margin is None:
             margin_s = "(all tied)" if len(models) > 1 else "(only model)"
         else:
-            margin_s = f"Δ +{margin:.4f}"
+            arrow = "−" if is_min else "+"
+            margin_s = f"Δ {arrow}{margin:.4f}"
             if len(models) > 1:
                 margin_s += f"  [{len(models)}-way tie]"
+        suffix = "  (min)" if is_min else ""
         sys.stderr.write(
-            f"  {d.ljust(name_w)}  {models_s.ljust(model_w)}  {score:.4f}  {margin_s}\n"
+            f"  {d.ljust(name_w)}  {models_s.ljust(model_w)}  {score:.4f}  "
+            f"{margin_s}{suffix}\n"
         )
     sys.stderr.write("\n")
 
 
-def _candidate_stats(cols, datasets, cand):
+def _candidate_stats(cols, datasets, cand, directions=None, candidate_direction="max"):
     """Compute (top1, pairwise, sp_min, sp_med, sp_max, n_usable, disagreements).
 
     Top1 is the fraction of datasets where the two metrics' top-scoring
     sets *overlap* — i.e. there exists at least one model tied for #1
-    under both metrics. Strict equality of the top sets would penalise
-    benign tie-break differences (the metrics agreeing on which models
-    are best, but ranking them differently within the tied group).
+    under both metrics, each scored in its own direction. Strict equality
+    of the top sets would penalise benign tie-break differences (the
+    metrics agreeing on which models are best, but ranking them
+    differently within the tied group).
+
+    `directions[ds]` overrides the per-dataset primary direction (default
+    `'max'`); `candidate_direction` overrides the candidate's direction
+    (default `'max'`).
 
     `disagreements` is a list of `(dataset, primary_top_set, candidate_top_set)`
     tuples for the datasets where the top sets are disjoint.
     """
+    directions = directions or {}
     top1_hits = 0
     pairwise_per_ds: list[float] = []
     sps: list[float] = []
@@ -194,8 +218,8 @@ def _candidate_stats(cols, datasets, cand):
         ccol = cols.get((d, cand))
         if not prim or not ccol or set(prim) != set(ccol):
             continue
-        ptop = _top_set(prim)
-        ctop = _top_set(ccol)
+        ptop = _top_set(prim, directions.get(d, "max"))
+        ctop = _top_set(ccol, candidate_direction)
         if ptop & ctop:
             top1_hits += 1
         else:
@@ -247,17 +271,34 @@ def main(path: Path) -> None:
         sys.exit(1)
 
     cols: dict[tuple[str, str], dict[str, float]] = defaultdict(dict)
+    # `directions[dataset]` is the primary `reward.direction:` for that dataset
+    # (`'max'` or `'min'`). `metric_directions[alias]` is the direction for
+    # each non-primary metric. Both default to `'max'` when the TSV doesn't
+    # carry a 5th `direction` column (older runs / hand-crafted TSVs).
+    directions: dict[str, str] = {}
+    metric_directions: dict[str, str] = {}
     with path.open() as f:
-        next(f)
-        for model, dataset, metric, value in csv.reader(f, delimiter="\t"):
+        header = next(f).rstrip("\n").split("\t")
+        has_direction = len(header) >= 5 and header[4] == "direction"
+        reader = csv.reader(f, delimiter="\t")
+        for row in reader:
+            model, dataset, metric, value = row[:4]
             cols[(dataset, metric)][model] = float(value)
+            if has_direction and len(row) >= 5:
+                direction = row[4]
+                if metric == PRIMARY:
+                    directions[dataset] = direction
+                else:
+                    metric_directions[metric] = direction
 
     datasets = sorted({d for d, _ in cols})
     candidates = sorted({m for _, m in cols} - {PRIMARY})
 
     # Model selection: always emit, even with zero candidates — picking the
     # right model per dataset doesn't depend on having extra rewards to audit.
-    _print_best_per_dataset(_best_per_dataset(cols, datasets), datasets)
+    _print_best_per_dataset(
+        _best_per_dataset(cols, datasets, directions), datasets, directions
+    )
 
     if not candidates:
         sys.stderr.write(
@@ -266,7 +307,17 @@ def main(path: Path) -> None:
         )
         return
 
-    stats = [(c, *_candidate_stats(cols, datasets, c)) for c in candidates]
+    stats = [
+        (
+            c,
+            *_candidate_stats(
+                cols, datasets, c,
+                directions=directions,
+                candidate_direction=metric_directions.get(c, "max"),
+            ),
+        )
+        for c in candidates
+    ]
     _print_reward_analysis(stats)
 
     # stdout TSV: one journal-friendly row per candidate.

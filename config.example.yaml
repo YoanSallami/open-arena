@@ -21,6 +21,11 @@
 # Either a string (snake_case name of a synalinks.rewards.Reward subclass) or
 # a dict with `name:` plus constructor kwargs. `language_model:` and
 # `embedding_model:` strings are auto-resolved into synalinks instances.
+# Add `direction: min | max` (keras-tuner convention, default `max`) under
+# the dict form when the dataset's primary metric is loss-style — analyze.py
+# and the trial canonicaliser then pick the winning model in the right
+# direction. Per-dataset, so different datasets in the same sweep can mix
+# loss-style and reward-style primaries freely.
 #
 # `repeat:` (per-dataset, optional, default 1) emits each raw example N times
 # in a row before moving on. Setting `repeat == batch_size` makes every batch
@@ -85,6 +90,12 @@ datasets:
     reward:
       name: exact_match
       in_mask: [content]
+      # `direction:` (default `max`) is the keras-tuner convention for
+      # ranking. Add `direction: min` to a dataset whose primary metric is
+      # loss-style (cross-entropy, edit distance, harm rate, ...). The
+      # canonical-trial picker and analyze.py both honor it per-dataset,
+      # so a single sweep can mix max-direction and min-direction primaries.
+      # direction: max
 
   # GSM8K math word problems via HuggingFace (illustrates a different schema
   # AND a task-specific generator prompt).
@@ -633,13 +644,17 @@ default: mmlu_test
 # `language_models:` × `datasets:` — one trial per (model, dataset) pair —
 # and prints one model × dataset matrix per metric at the end.
 #
-# `primary_direction:` (optional, default `max`) tells keras-tuner which way
-# to rank the primary `reward` metric across trials. Set it to `min` if every
-# dataset's primary `reward:` is loss-style (cross-entropy, edit distance,
-# ...). All datasets share one oracle, so they must agree on the direction.
-#
 # `datasets:` is optional; when omitted, the single dataset named by the
 # top-level `default:` key is used (1xN matrix).
+#
+# Direction (max | min, the keras-tuner convention) is per-reward,
+# everywhere it appears:
+#   - For each dataset's primary `reward:`, set `direction:` inside the
+#     `reward:` block (default `max`).
+#   - For each entry under `experiments.rewards:`, set `direction:` at
+#     the entry root (also default `max`).
+# This lets a sweep mix reward-style (max) and loss-style (min) primaries
+# across datasets — each dataset's column is ranked in its own direction.
 #
 # `rewards:` is optional. Each entry is a generic reward applied to every
 # (model, dataset) trial in addition to that dataset's primary reward —
@@ -653,7 +668,6 @@ default: mmlu_test
 # Each extra reward triggers another full program.evaluate() pass — K
 # extras = K× the model calls per trial.
 experiments:
-  primary_direction: max               # default; flip to `min` for loss-style primaries
   language_models:
     - ollama/mistral
     - ollama/llama3.2
