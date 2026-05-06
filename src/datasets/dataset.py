@@ -47,12 +47,16 @@ class Dataset:
         input_template (str): Jinja2 template string used to render raw
             rows into the input shape. Required.
         output_data_model (DataModel): Python class describing batch targets.
-            Defaults to `synalinks.ChatMessage` in subclasses when neither
-            this nor `output_schema` is provided.
+            Defaults to `synalinks.ChatMessage` when `output_template` is
+            given but neither this nor `output_schema` is. Must be omitted
+            when `output_template` is omitted.
         output_schema (dict | str): Raw JSON Schema for batch targets.
-            Mutually exclusive with `output_data_model`.
+            Mutually exclusive with `output_data_model`. Must be omitted
+            when `output_template` is omitted.
         output_template (str): Jinja2 template string used to render raw
-            rows into the target shape. Required.
+            rows into the target shape. Optional — when omitted, the dataset
+            is inputs-only and yields single-element `(x,)` batches (no
+            targets). Rewards that need `y_true` will see it missing.
         batch_size (int): Number of examples per yielded batch. `None` lets
             the subclass decide (or yield the whole dataset as one batch).
         limit (int): Optional. Maximum number of *raw* (pre-repeat) examples
@@ -83,8 +87,6 @@ class Dataset:
     ):
         if input_template is None:
             raise ValueError("`input_template` is required (Jinja2 template).")
-        if output_template is None:
-            raise ValueError("`output_template` is required (Jinja2 template).")
         if input_data_model is not None and input_schema is not None:
             raise ValueError(
                 "Pass either `input_data_model` or `input_schema`, not both."
@@ -93,13 +95,24 @@ class Dataset:
             raise ValueError(
                 "Pass either `output_data_model` or `output_schema`, not both."
             )
+        if output_template is None and (
+            output_data_model is not None or output_schema is not None
+        ):
+            raise ValueError(
+                "`output_data_model` / `output_schema` require `output_template` "
+                "(omit all three for an inputs-only dataset)."
+            )
         if not isinstance(repeat, int) or repeat < 1:
             raise ValueError(f"`repeat` must be a positive int; got {repeat!r}.")
         # Default to ChatMessages / ChatMessage when neither a data_model nor
         # a schema is given — matches the historical per-subclass behavior.
         if input_data_model is None and input_schema is None:
             input_data_model = synalinks.ChatMessages
-        if output_data_model is None and output_schema is None:
+        if (
+            output_template is not None
+            and output_data_model is None
+            and output_schema is None
+        ):
             output_data_model = synalinks.ChatMessage
         self.input_data_model = input_data_model
         self.input_schema = _coerce_schema(input_schema)
@@ -113,7 +126,9 @@ class Dataset:
 
         env = jinja2.Environment(undefined=jinja2.StrictUndefined)
         self._input_tmpl = env.from_string(input_template)
-        self._output_tmpl = env.from_string(output_template)
+        self._output_tmpl = (
+            env.from_string(output_template) if output_template is not None else None
+        )
 
     def _make_input(self, rendered: str):
         if self.input_schema is not None:
@@ -135,13 +150,17 @@ class Dataset:
         raise NotImplementedError
 
     def __iter__(self):
-        """Render rows through the templates and yield `(x, y)` batches.
+        """Render rows through the templates and yield batches.
 
-        Honors `limit` (caps raw rows), `repeat` (each raw example is
-        emitted `repeat` times in a row), and `batch_size` (size of the
-        yielded numpy object arrays). The trailing partial batch is
-        flushed at the end.
+        Yields `(x, y)` when an `output_template` is configured, or
+        single-element `(x,)` batches when it isn't. Honors `limit` (caps
+        raw rows), `repeat` (each raw example is emitted `repeat` times in
+        a row), and `batch_size` (size of the yielded numpy object arrays;
+        `None` accumulates everything into a single trailing batch). The
+        trailing partial batch is always flushed at the end.
         """
+        inputs_only = self._output_tmpl is None
+        bs = self.batch_size
         x_buf, y_buf = [], []
         seen = 0
         for row in self._iter_rows():
@@ -149,25 +168,27 @@ class Dataset:
                 break
             seen += 1
             x = self._make_input(self._input_tmpl.render(**row))
-            y = self._make_target(self._output_tmpl.render(**row))
+            y = None if inputs_only else self._make_target(
+                self._output_tmpl.render(**row)
+            )
             for _ in range(self.repeat):
                 x_buf.append(x)
-                y_buf.append(y)
-                if len(x_buf) >= self.batch_size:
-                    yield (
-                        np.array(x_buf, dtype="object"),
-                        np.array(y_buf, dtype="object"),
-                    )
+                if not inputs_only:
+                    y_buf.append(y)
+                if bs is not None and len(x_buf) >= bs:
+                    yield _batch(x_buf, y_buf, inputs_only)
                     x_buf, y_buf = [], []
         if x_buf:
-            yield (
-                np.array(x_buf, dtype="object"),
-                np.array(y_buf, dtype="object"),
-            )
+            yield _batch(x_buf, y_buf, inputs_only)
 
     def _total_batches(self, num_rows: int) -> int:
-        """Number of batches given `num_rows` raw (pre-repeat) examples."""
+        """Number of batches given `num_rows` raw (pre-repeat) examples.
+
+        `batch_size=None` collapses to a single batch.
+        """
         n = num_rows * self.repeat
+        if self.batch_size is None:
+            return 1 if n > 0 else 0
         return (n + self.batch_size - 1) // self.batch_size
 
     def __call__(self):
@@ -177,6 +198,13 @@ class Dataset:
     def __len__(self):
         """Number of batches, if known. Override when the size is finite."""
         raise NotImplementedError
+
+
+def _batch(x_buf, y_buf, inputs_only):
+    x = np.array(x_buf, dtype="object")
+    if inputs_only:
+        return (x,)
+    return (x, np.array(y_buf, dtype="object"))
 
 
 def _coerce_schema(schema):
