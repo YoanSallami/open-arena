@@ -44,14 +44,51 @@ PRIMARY = "reward"
 
 
 def _spearman(a: dict[str, float], b: dict[str, float]) -> float:
+    """Spearman rank correlation with average-rank tie handling.
+
+    Pearson correlation of the two average-rank vectors — the standard
+    Spearman definition. The simplified `1 - 6Σd²/(n(n²-1))` form only
+    holds when there are no ties; with ties it spuriously reports
+    disagreement that depends on input ordering.
+
+    Returns 1.0 in degenerate cases where there is no ordering signal at
+    all (n < 2, or both sides are constant). Returns 0.0 when exactly one
+    side is constant — Pearson is undefined there and "no correlation" is
+    the least-misleading scalar to fold into min/median/max stats.
+    """
     keys = list(a)
     n = len(keys)
     if n < 2:
         return 1.0
-    rank_a = {m: r for r, m in enumerate(sorted(keys, key=lambda m: a[m]))}
-    rank_b = {m: r for r, m in enumerate(sorted(keys, key=lambda m: b[m]))}
-    d2 = sum((rank_a[m] - rank_b[m]) ** 2 for m in keys)
-    return 1 - 6 * d2 / (n * (n * n - 1))
+    ra = _average_ranks([a[k] for k in keys])
+    rb = _average_ranks([b[k] for k in keys])
+    mean = (n + 1) / 2  # average rank is always (n+1)/2 with fractional ranks
+    num = sum((x - mean) * (y - mean) for x, y in zip(ra, rb))
+    da = sum((x - mean) ** 2 for x in ra)
+    db = sum((y - mean) ** 2 for y in rb)
+    if da == 0 and db == 0:
+        return 1.0
+    if da == 0 or db == 0:
+        return 0.0
+    return num / (da * db) ** 0.5
+
+
+def _average_ranks(values: list[float]) -> list[float]:
+    """Fractional ranks (1-based): tied values share the average of the
+    positions they would occupy. E.g. `[10, 20, 20, 30]` → `[1, 2.5, 2.5, 4]`.
+    """
+    order = sorted(range(len(values)), key=lambda i: values[i])
+    ranks = [0.0] * len(values)
+    i = 0
+    while i < len(values):
+        j = i
+        while j + 1 < len(values) and values[order[j + 1]] == values[order[i]]:
+            j += 1
+        avg = (i + j) / 2 + 1
+        for k in range(i, j + 1):
+            ranks[order[k]] = avg
+        i = j + 1
+    return ranks
 
 
 def _pairwise_agreement(a: dict[str, float], b: dict[str, float]) -> float:
@@ -80,17 +117,32 @@ def _pairwise_agreement(a: dict[str, float], b: dict[str, float]) -> float:
     return score / total
 
 
+def _top_set(scores: dict[str, float]) -> frozenset[str]:
+    """Models tied at `max(scores.values())`."""
+    top = max(scores.values())
+    return frozenset(m for m, s in scores.items() if s == top)
+
+
 def _best_per_dataset(cols, datasets):
-    """`{dataset: (best_model, best_score, margin_or_None)}` under primary."""
+    """`{dataset: (best_models, best_score, margin_or_None)}` under primary.
+
+    `best_models` is a tuple of all models tied at the top score (one entry
+    when there's a unique winner). `margin` is the gap to the next
+    *distinct* score, or `None` when every model has the same score.
+    """
     out = {}
     for d in datasets:
         prim = cols.get((d, PRIMARY))
         if not prim:
             continue
         ranked = sorted(prim.items(), key=lambda kv: -kv[1])
-        best_model, best_score = ranked[0]
-        margin = (best_score - ranked[1][1]) if len(ranked) >= 2 else None
-        out[d] = (best_model, best_score, margin)
+        best_score = ranked[0][1]
+        best_models = tuple(m for m, s in ranked if s == best_score)
+        next_distinct = next(
+            (s for _, s in ranked if s < best_score), None
+        )
+        margin = (best_score - next_distinct) if next_distinct is not None else None
+        out[d] = (best_models, best_score, margin)
     return out
 
 
@@ -101,15 +153,21 @@ def _print_best_per_dataset(best, datasets):
         sys.stderr.write(f"  (no datasets with primary {PRIMARY!r} scores)\n\n")
         return
     name_w = max(len(d) for d in datasets)
-    model_w = max(len(m) for m, _, _ in best.values())
+    model_w = max(len(", ".join(ms)) for ms, _, _ in best.values())
     for d in datasets:
         if d not in best:
             sys.stderr.write(f"  {d.ljust(name_w)}  (no successful trials)\n")
             continue
-        model, score, margin = best[d]
-        margin_s = f"Δ +{margin:.4f}" if margin is not None else "(only model)"
+        models, score, margin = best[d]
+        models_s = ", ".join(models)
+        if margin is None:
+            margin_s = "(all tied)" if len(models) > 1 else "(only model)"
+        else:
+            margin_s = f"Δ +{margin:.4f}"
+            if len(models) > 1:
+                margin_s += f"  [{len(models)}-way tie]"
         sys.stderr.write(
-            f"  {d.ljust(name_w)}  {model.ljust(model_w)}  {score:.4f}  {margin_s}\n"
+            f"  {d.ljust(name_w)}  {models_s.ljust(model_w)}  {score:.4f}  {margin_s}\n"
         )
     sys.stderr.write("\n")
 
@@ -117,25 +175,31 @@ def _print_best_per_dataset(best, datasets):
 def _candidate_stats(cols, datasets, cand):
     """Compute (top1, pairwise, sp_min, sp_med, sp_max, n_usable, disagreements).
 
-    `disagreements` is a list of `(dataset, primary_winner, candidate_winner)`
-    tuples for the datasets where the two metrics' #1 models differ.
+    Top1 is the fraction of datasets where the two metrics' top-scoring
+    sets *overlap* — i.e. there exists at least one model tied for #1
+    under both metrics. Strict equality of the top sets would penalise
+    benign tie-break differences (the metrics agreeing on which models
+    are best, but ranking them differently within the tied group).
+
+    `disagreements` is a list of `(dataset, primary_top_set, candidate_top_set)`
+    tuples for the datasets where the top sets are disjoint.
     """
     top1_hits = 0
     pairwise_per_ds: list[float] = []
     sps: list[float] = []
-    disagreements: list[tuple[str, str, str]] = []
+    disagreements: list[tuple[str, tuple[str, ...], tuple[str, ...]]] = []
 
     for d in datasets:
         prim = cols.get((d, PRIMARY))
         ccol = cols.get((d, cand))
         if not prim or not ccol or set(prim) != set(ccol):
             continue
-        pwin = max(prim, key=prim.get)
-        cwin = max(ccol, key=ccol.get)
-        if pwin == cwin:
+        ptop = _top_set(prim)
+        ctop = _top_set(ccol)
+        if ptop & ctop:
             top1_hits += 1
         else:
-            disagreements.append((d, pwin, cwin))
+            disagreements.append((d, tuple(sorted(ptop)), tuple(sorted(ctop))))
         pairwise_per_ds.append(_pairwise_agreement(prim, ccol))
         sps.append(_spearman(prim, ccol))
 
@@ -166,12 +230,13 @@ def _print_reward_analysis(stats):
     diss = [(s[0], s[7]) for s in stats if s[7]]
     if diss:
         sys.stderr.write(
-            "disagreements (datasets where the candidate's #1 differs from primary's):\n"
+            "disagreements (datasets where the candidate's top set is disjoint from primary's):\n"
         )
         for cand, ds_list in diss:
-            for d, pwin, cwin in ds_list:
+            for d, ptop, ctop in ds_list:
                 sys.stderr.write(
-                    f"  {cand}: {d} — primary→{pwin}, candidate→{cwin}\n"
+                    f"  {cand}: {d} — primary→{{{', '.join(ptop)}}}, "
+                    f"candidate→{{{', '.join(ctop)}}}\n"
                 )
         sys.stderr.write("\n")
 
