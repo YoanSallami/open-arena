@@ -3197,7 +3197,7 @@ requires-dist = [
     { name = "langsmith", specifier = ">=0.7.38" },
     { name = "opik", specifier = ">=2.0.20" },
     { name = "pyarrow", specifier = ">=23.0.1" },
-    { name = "synalinks", editable = "../synalinks" },
+    { name = "synalinks", specifier = ">=0.8.11" },
 ]
 provides-extras = ["deepeval"]
 
@@ -5410,7 +5410,8 @@ wheels = [
 
 [[package]]
 name = "synalinks"
-source = { editable = "../synalinks" }
+version = "0.8.11"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "absl-py" },
     { name = "asyncio" },
@@ -5440,35 +5441,9 @@ dependencies = [
     { name = "synaops" },
     { name = "tenacity" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "absl-py" },
-    { name = "asyncio" },
-    { name = "click" },
-    { name = "datasets" },
-    { name = "docstring-parser" },
-    { name = "duckdb" },
-    { name = "fastmcp", specifier = ">=3.2.0" },
-    { name = "graphviz" },
-    { name = "greenlet" },
-    { name = "inquirer" },
-    { name = "jinja2" },
-    { name = "jsonschema" },
-    { name = "litellm", specifier = ">=1.83.7" },
-    { name = "matplotlib" },
-    { name = "mcp" },
-    { name = "mlflow", specifier = ">=3.11.1" },
-    { name = "namex" },
-    { name = "numpy" },
-    { name = "optree" },
-    { name = "orjson" },
-    { name = "pydantic" },
-    { name = "pydantic-monty" },
-    { name = "pydotplus" },
-    { name = "rich" },
-    { name = "synaops", specifier = ">=0.2.0" },
-    { name = "tenacity" },
+sdist = { url = "https://files.pythonhosted.org/packages/52/f6/16d519677ef88b08d9036aed39cf5cd0ed32744d960bedb26197e4dca386/synalinks-0.8.11.tar.gz", hash = "sha256:8a816ac9e5fc7cdec95a76b5784be81a15d795b5a8b91038902f41d59e064f22", size = 376787 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8b/50/5232027a5ca6b470d47f4e964f3e522b042f78424aadd9d1fc95724d5d42/synalinks-0.8.11-py3-none-any.whl", hash = "sha256:52c80d352f2534eb45e8f12af66f6d767aadbdcf2fcd51559321e403de0cb9e0", size = 492321 },
 ]
 
 [[package]]

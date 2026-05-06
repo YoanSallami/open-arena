@@ -50,6 +50,3 @@ packages = ["src"]
 # console script) and `program.py` (the editable `build_program()`) are
 # not under `src/`, so force-include them in the wheel.
 force-include = { "evaluate.py" = "evaluate.py", "program.py" = "program.py" }
-
-[tool.uv.sources]
-synalinks = { path = "../synalinks", editable = true }
