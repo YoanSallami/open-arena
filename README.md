@@ -4,11 +4,14 @@
 
 Autoresearch loop for reward-R&D and model selection in the modern
 LM ops stack — between post-training evals and the next round of
-fine-tuning / RL. An agent iterates on candidate rewards under
-`src/rewards/`, validates them by running an evaluation sweep across a
-(model × dataset) grid, and keeps the rewards whose rankings best
-agree with each dataset's task-specific primary reward. **Configured
-entirely from YAML**; experiment management on top of `keras-tuner`.
+fine-tuning / RL. An agent iterates on candidate rewards built-ins 
+(`exact_match`, `cosine_similarity`, `lm_as_judge`), custom rewards
+under `src/rewards/` (`judge_panel`, `recursive_lm_as_judge`),
+and any `deepeval.metrics` class via the `deep_eval` wrapper.
+Validates them by running an evaluation sweep across a (model ×
+dataset) grid, and keeps the rewards whose rankings best agree with
+each dataset's task-specific primary reward. **Configured entirely
+from YAML**; experiment management on top of `keras-tuner`.
 
 Plugs into every major LM provider — OpenAI, Anthropic, Gemini,
 Mistral, Cohere, Groq, Together, DeepSeek, xAI, OpenRouter, Azure,
@@ -17,18 +20,6 @@ eval datasets from Langfuse, LangSmith, Opik, Arize Phoenix, and
 Braintrust (or any HF / local / folder source). Each dataset can run
 as a single-shot `Generator` eval or as a multi-step
 `FunctionCallingAgent` driven by MCP tools.
-
-```
-$ arena -c config.yaml
-                    Reward (primary)
-┌────────────────┬───────────┬────────────┐
-│ language_model │ mmlu_test │ gsm8k_test │
-├────────────────┼───────────┼────────────┤
-│ ollama/mistral │    0.4400 │     0.1800 │
-│ ollama/llama3.2│    0.5200 │     0.4200 │
-│ ollama/qwen    │    0.4000 │     0.3000 │
-└────────────────┴───────────┴────────────┘
-```
 
 ## Install
 
@@ -148,9 +139,20 @@ outputs).
 | `lm_as_judge` | Single-LM judge |
 | `recursive_lm_as_judge` | RLM agent inside a `ProgramAsJudge` — inspects the (gold, prediction) pair with code, recursively delegates semantic comparisons to a sub-LM |
 | `judge_panel` | M small LMs vote in parallel; on disagreement (max-min spread > `agreement_threshold`) a smart LM breaks the tie |
+| `deep_eval` | Wraps any `deepeval.metrics` class (`GEval`, `FaithfulnessMetric`, `ToolCorrectnessMetric`, `PIILeakageMetric`, …). Per-slot mask routing maps `LLMTestCase` slots (input / actual_output / expected_output / context / retrieval_context / tools_called / expected_tools) to data-model fields independently. Install with `uv sync --extra deepeval`. |
 
-`in_mask: [content]` on every reward keeps the comparison restricted to
-the `content` field of the chat message, ignoring `role` and friends.
+**Masking — different rule for comparison vs judge rewards:**
+
+- **Comparison rewards** (`exact_match`, `cosine_similarity`, regex / length
+  checks): pass `in_mask: [content]` so the comparison only sees the answer
+  field — `role` and friends would otherwise drive the score to 0.
+- **Judge rewards** (`lm_as_judge`, `recursive_lm_as_judge`, `judge_panel`,
+  `deep_eval`): leave `in_mask` *unset*. The harness builds the eval
+  program with `Generator(return_inputs=True, …)`, so `y_pred` carries the
+  original input `messages` alongside the answer; the judge needs that
+  prompt to score whether the answer addresses the task. `in_mask: [content]`
+  would discard `messages` and leave the judge grading in a vacuum. See
+  `REWARDS_BUILDING.md` for the full rationale.
 
 ### Agent mode (function-calling + MCP)
 
@@ -208,7 +210,8 @@ experiments:
     - name: lm_as_judge
       alias: lm_judge
       language_model: ollama/llama3.2
-      in_mask: [content]
+      # No `in_mask` — judges need the input `messages` (injected via
+      # `return_inputs=True`) alongside the answer to score relevance.
       instructions: "Score 0.0–1.0 on factual correctness."
     - name: recursive_lm_as_judge
       alias: rlm_judge
@@ -217,7 +220,6 @@ experiments:
       # reliably. `sub_language_model` (used for `llm_query`) can be cheap.
       language_model: openai/gpt-4o
       sub_language_model: openai/gpt-4o-mini
-      in_mask: [content]
       max_iterations: 8
       max_llm_calls: 10
       instructions: "Score 0.0–1.0 on factual correctness."
@@ -233,17 +235,21 @@ The purpose is to test generic open-ended rewards.
 ## Layout
 
 ```
+evaluate.py                           `arena` entrypoint — sweep + result matrices
+program.py                            Editable program graphs: build_program / build_agent
+analyze.py                            Reward-vs-primary diagnostics over the sweep
 src/
-  cli.py                              `arena` entrypoint
   keras_stub.py                       Lets keras-tuner import without a real keras backend
   datasets/                           One file per provider + the registry
   rewards/
-    recursive_language_model_reward.py
+    deep_eval.py                      Wraps any DeepEval metric (per-slot mask routing)
     judge_panel.py
+    recursive_language_model_reward.py
 config.yaml                           Active config
-config.example.yaml                   Reference config (every provider / reward type)
+config.example.yaml                   Reference config (every provider / reward / agent example)
 .env.example                          Provider env vars
-AGENTS.md                             Notes for AI coding agents
+AGENTS.md / CLAUDE.md                 Notes for AI coding agents
+AUTORESEARCH.md                       Autonomous experiment-loop protocol
 ```
 
 ## License

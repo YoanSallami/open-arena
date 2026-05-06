@@ -4,18 +4,30 @@
 # --- Datasets ---------------------------------------------------------------
 # Each entry under `datasets:` is a named source. The `type:` field selects a
 # provider (see src/datasets/__init__.py:_DATASET_TYPES); every other key is
-# forwarded to that provider's constructor as a kwarg, except for `generator:`
-# and `reward:` (see below) which are consumed by main.py.
+# forwarded to that provider's constructor as a kwarg, except for the
+# special keys below which are consumed by evaluate.py.
 #
 # Templates render to JSON. `input_template` builds the program's input
 # (defaults to synalinks.ChatMessages); `output_template` builds the target
 # (defaults to synalinks.ChatMessage — the Generator's default output type).
+# Omitting `output_template` makes the dataset inputs-only; rewards then see
+# `y_true=None` and must handle that case (lm_as_judge does, exact_match
+# doesn't).
 #
-# `generator:` (per-dataset, optional) is forwarded as kwargs to
-# synalinks.Generator(...). It lives here because instructions and other
-# generator knobs are task-dependent. Common knobs: temperature,
-# reasoning_effort, instructions, prompt_template, examples,
-# use_inputs_schema, use_outputs_schema.
+# `generator:` and `agent:` are mutually exclusive — pick the program graph
+# the trial runs:
+#
+# - `generator:` (per-dataset, optional) is forwarded as kwargs to
+#   `synalinks.Generator(...)` — one LM call per row. Common knobs:
+#   temperature, reasoning_effort, instructions, prompt_template, examples,
+#   use_inputs_schema, use_outputs_schema.
+#
+# - `agent:` (per-dataset, optional) turns the trial into a
+#   `synalinks.FunctionCallingAgent` driven by MCP tools — multi-step
+#   tool/observe/decide loop per row. Servers are declared once under the
+#   top-level `mcp_servers:` registry and referenced by name from each
+#   agentic dataset's `agent.mcp_servers:` list. See the `agentic_math_eval`
+#   example below.
 #
 # `reward:` (per-dataset, required) is the scoring function for this dataset.
 # Either a string (snake_case name of a synalinks.rewards.Reward subclass) or
@@ -31,12 +43,6 @@
 # in a row before moving on. Setting `repeat == batch_size` makes every batch
 # a group of N rollouts of the same prompt — the GRPO-style RL layout where
 # reward statistics are computed across rollouts of one input.
-#
-# `agent:` (per-dataset, optional, mutually exclusive with `generator:`)
-# turns the trial into a `synalinks.FunctionCallingAgent` driven by MCP
-# tools instead of a single Generator call. Servers are declared once
-# under the top-level `mcp_servers:` registry and referenced by name from
-# each agentic dataset's `agent.mcp_servers:` list.
 
 # --- MCP server registry ----------------------------------------------------
 # Top-level map of {server_name: connection_dict}. Each connection follows
@@ -463,6 +469,31 @@ datasets:
       name: exact_match
       in_mask: [content]
 
+  # Folder dataset — one record per file. Use this for hand-curated test cases
+  # checked into the repo, or for ad-hoc evaluations where each example lives
+  # in its own JSON / YAML / text / markdown file. Format is auto-detected per
+  # file from the extension; dict-shaped records (`.json` / `.yaml` / `.yml`)
+  # spread their keys at the top level. Plain text (`.txt` / `.md`) is exposed
+  # as `text`. All records additionally expose `_filename`, `_stem`, `_path`.
+  folder_eval:
+    type: folder
+    path: data/cases
+    pattern: "*.json"             # glob; combine with `recursive: true` for nested folders
+    # format: json                # override per-file auto-detection (json | yaml | text)
+    batch_size: 1
+    limit: 20
+    input_template: |
+      {"messages":[{"role":"user","content": {{ question | tojson }}}]}
+    output_template: |
+      {"role":"assistant","content": {{ answer | tojson }}}
+    generator:
+      temperature: 0.0
+      instructions: |
+        Answer the question concisely.
+    reward:
+      name: exact_match
+      in_mask: [content]
+
   # Agentic dataset — uses a `synalinks.FunctionCallingAgent` driven by MCP
   # tools instead of a single Generator call. The agent runs its own
   # call-tool / observe / decide loop per row (capped by `max_iterations`)
@@ -513,31 +544,6 @@ datasets:
   #     # tool_calls at the root, plus a y_true with the gold tool calls.
   #     # Without that wiring the default mask returns no fields and the
   #     # reward fails-fast at runtime.
-
-  # Folder dataset — one record per file. Use this for hand-curated test cases
-  # checked into the repo, or for ad-hoc evaluations where each example lives
-  # in its own JSON / YAML / text / markdown file. Format is auto-detected per
-  # file from the extension; dict-shaped records (`.json` / `.yaml` / `.yml`)
-  # spread their keys at the top level. Plain text (`.txt` / `.md`) is exposed
-  # as `text`. All records additionally expose `_filename`, `_stem`, `_path`.
-  folder_eval:
-    type: folder
-    path: data/cases
-    pattern: "*.json"             # glob; combine with `recursive: true` for nested folders
-    # format: json                # override per-file auto-detection (json | yaml | text)
-    batch_size: 1
-    limit: 20
-    input_template: |
-      {"messages":[{"role":"user","content": {{ question | tojson }}}]}
-    output_template: |
-      {"role":"assistant","content": {{ answer | tojson }}}
-    generator:
-      temperature: 0.0
-      instructions: |
-        Answer the question concisely.
-    reward:
-      name: exact_match
-      in_mask: [content]
 
   # Langfuse-managed evaluation set, pinned to a UTC snapshot.
   # Auth comes from LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY / LANGFUSE_HOST.
@@ -773,12 +779,17 @@ experiments:
     # HallucinationMetric — slots: [input, actual_output, context].
     # `context` is the GROUND TRUTH the answer is checked against (note: this
     # is `context`, not `retrieval_context` — distinct DeepEval slots).
+    # NOTE: HallucinationMetric reports a HALLUCINATION RATE (lower = better).
+    # The reward returns the raw rate; set `direction: min` so the sweep
+    # ranks it correctly. Same applies to BiasMetric / ToxicityMetric /
+    # MisuseMetric (also lower-is-better).
     # - name: deep_eval
     #   alias: deep_eval_hallucination
+    #   direction: min              # required — HallucinationMetric reports harm rate
     #   metric: HallucinationMetric
     #   metric_kwargs:
     #     model: gpt-4o
-    #     threshold: 0.5            # lower-is-better — DeepEval inverts internally
+    #     threshold: 0.5
     #   testcase:
     #     context: {from: y_true, in_mask: [reference_text], extract: list}
 
