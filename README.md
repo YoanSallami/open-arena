@@ -19,7 +19,7 @@ leaderboards. Everything is declared in YAML and run from one command,
 - **Ready for a coding agent**: every workspace comes with an `AGENTS.md` and
   one Agent Skill per task.
 
-**Documentation: [atena-it.github.io/open-arena](https://atena-it.github.io/open-arena/)**
+**Documentation: [docs/](https://github.com/Atena-IT/open-arena/tree/main/docs)**, start with the [quickstart](https://github.com/Atena-IT/open-arena/blob/main/docs/index.md)
 
 ## Quickstart
 
@@ -72,7 +72,7 @@ datasets:
     reward: exact-match
 ```
 
-See the [guides](https://atena-it.github.io/open-arena/) for every registry.
+See the [guides](https://github.com/Atena-IT/open-arena/tree/main/docs/guides) for every registry.
 
 ## Development
 
